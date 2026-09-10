@@ -218,12 +218,10 @@ function feedbackPinPlugin() {
     configureServer(server: any) {
       server.middlewares.use(feedbackMiddleware);
     },
-    // `vite preview`, i.e. `npm run serve` — the desktop launcher's server.
-    // Registering directly (not returning a post-hook) puts the endpoint
-    // ahead of the built-in static handler, same as configureServer.
-    configurePreviewServer(server: any) {
-      server.middlewares.use(feedbackMiddleware);
-    },
+    // DEV ONLY. `vite preview` is what the container runs, and the front door
+    // proxies it to any authenticated viewer — so registering here would give
+    // every friend the owner let in an endpoint that writes files to the host.
+    // Upstream ran one household on a LAN and could afford it; this cannot.
   };
 }
 
@@ -388,11 +386,9 @@ function mpvPlayerPlugin() {
     configureServer(server: any) {
       server.middlewares.use(handler);
     },
-    // launch.sh serves the built bundle via `vite preview`, so the endpoint has
-    // to exist there too or local playback only works under `npm run dev`.
-    configurePreviewServer(server: any) {
-      server.middlewares.use(handler);
-    },
+    // DEV ONLY — see the feedback plugin above. This one SPAWNS A PROCESS on
+    // the host. Local mpv playback was always an HTPC-at-the-screen feature and
+    // makes no sense for a remote viewer anyway, so nothing is lost.
   };
 }
 
@@ -461,9 +457,15 @@ function integrationProxyPlugin() {
     configureServer(server: any) {
       server.middlewares.use(handler);
     },
-    configurePreviewServer(server: any) {
-      server.middlewares.use(handler);
-    },
+    // DEV ONLY, and this is the most important of the three. It fetches an
+    // ARBITRARY URL and attaches the operator's credentials — behind the front
+    // door's proxy that is a signed-in viewer using the owner's NAS as an
+    // authenticated request relay into their private network.
+    //
+    // The cost is real and accepted: RomM and Jellyseerr need this to get past
+    // CORS, so those integrations do not work in the container. They are not
+    // wired into the gate either. Restoring them means an allowlist of the
+    // configured hosts, not this.
   };
 }
 

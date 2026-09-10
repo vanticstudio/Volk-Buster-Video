@@ -34,7 +34,8 @@
     "test:frontdoor": "node --experimental-strip-types --test tests/front-door-store.test.ts",
     "test:frontdoorhttp": "node --experimental-strip-types --test tests/front-door-http.test.ts",
     "test:bootstrap": "node --experimental-strip-types --test tests/bootstrap.test.ts",
-    "test:plexconn": "node --experimental-strip-types --test tests/plex-connection.test.ts"
+    "test:plexconn": "node --experimental-strip-types --test tests/plex-connection.test.ts",
+    "test:preview": "node --experimental-strip-types --test tests/preview-middleware.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
