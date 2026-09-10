@@ -15,19 +15,7 @@ started · `PARKED` deliberately deferred, with the reason.
 
 ## In flight
 
-### Mobile viewport — `BUILDING`
-
-Framing and render budget are done (see below). What is left needs a real
-phone, not arithmetic:
-
-- **The card overlays' internals.** Seven of the nine already capped at
-  90–95vw; `.genre-card`, `.version-card` and `.feedback-pin-card` did not and
-  now do. Capping stops them running off the side — it does not prove their
-  internal grids reflow well at 414px. Someone has to look.
-- **Safe areas.** The store is `viewport-fit=cover` on the sign-in page but the
-  app shell is not, so a notch or a home indicator may sit over the HUD.
-- **Portrait HUD placement.** The bottom band and the touch OK/BACK buttons
-  were placed against a landscape frame.
+Nothing. The list below is what is done and what is next.
 
 ---
 
@@ -82,7 +70,35 @@ gate the crawler cannot pass. The image is generated from the brand mark
 (`tools/gen-share-image.mjs`), and the absolute URL it needs is built from the
 request's Host, which is allowlisted before use.
 
-### Mobile framing and render budget — `DONE (maths), UNVERIFIED (on glass)`
+### Phones are turned away — `DONE`
+
+Owner ruling, replacing the earlier "make it work on mobile" direction: a
+handset gets *"Please continue on a desktop or TV instead, as mobile is
+unsupported."* before the store boots, so it never spends a phone's battery and
+data on a scene it is about to refuse.
+
+It takes TWO signals — phone-shaped **and** coarse-pointer-with-no-hover —
+because either alone is wrong in a way people hit. Size alone walls off a
+narrowed desktop window, and telling someone on a desktop to continue on a
+desktop looks broken. Input alone walls off touchscreen laptops and tablets,
+which have the screen and the horsepower. Rotating into a supported size boots
+late rather than leaving a blank page.
+
+### Store settings on the console — `DONE`
+
+47 settings plus 21 platform toggles on `:3366`, enforced for every viewer via
+the same key injection that already carried library visibility. Credentials,
+hostnames and the per-device render knobs are deliberately excluded, each with
+its reason in `EXCLUDED_KEYS`. The public store has none.
+
+### The return chute in every era — `DONE`
+
+It was VHS-eras-only, which left the 2010 store — now the default — with no
+return ritual at all. Nothing needed reshaping: a DVD case is the same height
+and half the thickness of a VHS one, so it posts through the existing slot.
+Only the sign's middle word is era-specific.
+
+### Mobile framing and render budget — `DONE (maths), SUPERSEDED for phones`
 
 The store asked for a fixed 60° **vertical** fov, which is 91.5° horizontally
 at 16:9 and 29.9° on a portrait phone — a third of the view every camera
@@ -95,13 +111,15 @@ never binds on a phone — a phone's viewport is ~330k CSS pixels against a 3.7M
 budget — so the tier's own ratio cap was the only thing between a mobile GPU
 and a 2x buffer, and it was set for desktops.
 
-**Not yet seen on a phone.** The angles are unit-tested at every aspect
-(`tests/viewport.test.ts`) and the wiring typechecks and builds, but nobody has
-looked at the result on glass: the browser here would not come to the
-foreground, and a headless boot of 2174 textures under SwiftShader does not
-finish. What the numbers cannot tell you is whether 80° feels right in the
-aisle. If it reads too wide, `MAX_FOV` in `src/viewport.ts` is the one number
-to change, and the tests will tell you what it costs.
+**Phones no longer reach this code** — they are turned away above. It still
+earns its keep on tablets, split-screen and narrow desktop windows, which stay
+supported, and `isHandheldViewport()` is now the size half of the phone test, so
+none of it is dead.
+
+Still never seen on glass: the angles are unit-tested at every aspect
+(`tests/viewport.test.ts`) and the wiring builds, but whether 80° feels right in
+the aisle is not something numbers answer. `MAX_FOV` in `src/viewport.ts` is the
+one knob.
 
 ### Viewer mode on 3355 — `DONE`
 

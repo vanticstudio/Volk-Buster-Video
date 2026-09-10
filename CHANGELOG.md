@@ -47,6 +47,26 @@ small multi-user service, and making it ours.
 
 ### Added
 
+- **Every store setting is now set on the management console**, not in the store:
+  47 of them plus 21 per-platform game toggles, covering the era, shelf
+  arrangement, wall colour, storefront, ceiling, what is outside, media format,
+  how renting works, departments and playback. They are **enforced** — the owner
+  builds one shop and every viewer gets it.
+
+  Credentials, server addresses and the per-device render knobs (`bb_quality`,
+  `bb_ao`, `bb_fps_cap`, `bb_fps_meter`) are deliberately excluded, each with its
+  reason recorded: the first two would be disclosed to every viewer, and the last
+  describe someone's own machine rather than the shop.
+
+- **The store opens in the 2010 era** by default. That default had been written
+  in two modules that cannot import each other, each with its own literal, so a
+  fresh store could resolve one era's palette against another era's logo; both
+  now read one constant.
+
+- **Phones are told to use a desktop or TV** rather than served a store they
+  cannot use. It takes two signals — phone-shaped and touch-primary — so a
+  narrowed desktop window and a touchscreen laptop both still get the store.
+
 - **The store is now served behind the gate.** The front door reverse-proxies
   the app for authenticated requests, so every byte of the store arrives through
   a request that already carried a valid session. Before this the two processes
@@ -156,6 +176,19 @@ small multi-user service, and making it ours.
   default**.
 
 ### Fixed
+
+- **The public store leaked its whole settings drawer through CONTROLS & HELP.**
+  The row looked harmless — a reference card with no knobs — but it opens the
+  settings drawer on its Controls page, and Back from any page regenerates the
+  drawer as the full category index. One press of Escape on a help screen and a
+  viewer on the tunnelled port was in Store Look, Connection and Performance.
+  The row is gone and `openSettingsDrawer()` refuses outright in viewer mode,
+  because every door in that drawer opens onto the same room.
+
+- **The 2010 store had no return chute**, so walking back in with rentals blinked
+  them out of your hands with no drop ritual. It was gated to the VHS eras;
+  nothing needed reshaping to lift that, since a DVD case is the same height and
+  half the thickness of a VHS one and posts through the existing slot.
 
 - **The store framed itself for a 16:9 screen and nothing else.** three.js's
   camera fov is the VERTICAL angle, and a fixed 60° is 91.5° horizontally at

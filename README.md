@@ -115,6 +115,8 @@ multi-user service.
 | **Admin** | Anyone at the screen | Owner only, enforced server-side |
 | **Dev endpoints in production** | `/dev-proxy`, `/__play`, `/__feedback` live | Removed from the production server |
 | **2.5D fallback** | Yes | Removed |
+| **Store settings** | In the store, per browser | On the console, one shop for everyone |
+| **Phones** | Renders, barely | Told to use a desktop or TV |
 
 Each viewer sees their own access because the store's Plex connection is
 resolved from *their* token — Plex only returns what that account can reach. It
@@ -125,8 +127,8 @@ is not a permission this code applies; it is what asking Plex as them returns.
 The store is currently rendered in each viewer's own browser and proxied behind
 the gate — one shared store, so everyone drives the same camera. The design this
 is heading for renders per-viewer instances on the host GPU and streams them
-over WebRTC, which is what makes a phone able to walk the aisles and stops the
-scene rebuilding on every visit. That is the next phase, not today's behaviour.
+over WebRTC, which is what stops the scene rebuilding on every visit. That is
+the next phase, not today's behaviour.
 
 Full design: [`docs/architecture/2026-09-06-plex-only-streaming-fork.md`](docs/architecture/2026-09-06-plex-only-streaming-fork.md).
 
@@ -143,6 +145,42 @@ in Plex, so it is not duplicated anywhere it could drift.
 A valid Plex login is deliberately *not* enough — anyone can create a Plex
 account in a minute. The gate asks a different question.
 
+## The management console
+
+Everything about the shop is set on `:3366`, by you, once — and every viewer
+gets the shop you built. The public store on `:3355` has no settings at all: its
+counter terminal offers SIGN OUT and RETURN TO STORE, and nothing else.
+
+That split is the point. `:3355` is what goes through a tunnel to everyone you
+share a Plex library with, and the store's own settings page could change the
+Plex connection, suspend the host, or open the staff-only service knobs. Those
+are not a visitor's to touch.
+
+The console covers:
+
+- **Libraries** — which of your Plex libraries the store stocks.
+- **The look** — era (1990 / 1993 / 2000 / 2010), shelf arrangement, wall
+  colour, storefront, ceiling, what's outside the windows, media format.
+- **How renting works** — carry-to-the-counter, and whether titles lock for a
+  real rental period after watching.
+- **Departments** — games (and 21 per-platform bays), streaming services,
+  candy.
+- **Playback** — audio language and default captions.
+- **Sessions** — sign every viewer out at once, which is the lever you want
+  right after unsharing a library.
+
+Two things it deliberately does not do. It holds **no credentials or server
+addresses** — those reach the app server-side and would be disclosed to every
+viewer if the console wrote them. And it does not touch the **render settings**
+(quality tier, ambient occlusion, frame cap): those describe a viewer's own
+machine, and forcing your TV's settings onto someone's laptop makes their store
+worse, not more consistent.
+
+> **Hiding a library is merchandising, not access control.** It stops the store
+> stocking it. It does not stop someone asking Plex for it directly with the
+> token their own browser holds. Plex's sharing is the boundary — if a person
+> must not see a library, unshare it there.
+
 ## Status
 
 | Phase | State |
@@ -151,13 +189,29 @@ account in a minute. The gate asks a different question.
 | Plex-only | Done |
 | Front door — Plex gate, sessions, per-user config | Done |
 | Store served behind the gate; one setup for everyone | Done |
+| Management console on `:3366` — libraries, departments, settings | Done |
+| Viewer mode — the public store offers no settings at all | Done |
+| Link previews when the store's URL is shared | Done |
+| Phones turned away with a message rather than served badly | Done |
 | Rendering instance pool | Next |
 | Cloudflare Tunnel + TURN | Not started |
 | Playback handoff | Not started |
-| Mobile portrait framing | Not started |
+| Plex "now playing" sessions | Not started |
 
-Signing in works, the gate is enforced, and the store is served behind it. What
-the instance pool adds is per-viewer rendering on the host GPU.
+Signing in works, the gate is enforced, the store is served behind it and the
+owner runs it from the console. What the instance pool adds is per-viewer
+rendering on the host GPU.
+
+Two things are worth knowing before you install. **Playback does not appear in
+Plex's activity dashboard** — the store reports resume position and watched
+state, which is what the shelves read back, but it does not open a Plex session,
+so nobody shows up as "now playing". And **phones are not supported**: the store
+is a walkable 3D shop with a remote-control scheme and a scene budget written
+for a TV, so a handset gets a message pointing it at a desktop or TV instead. A
+tablet is fine.
+
+The full working list, with the reasoning, is
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## How it fits together
 
@@ -179,7 +233,7 @@ Internet ──▶ (tunnel/router) ──▶ front door :3355   ← the only way
 Development needs **Node 22.6+** (the test runner uses type stripping):
 
 ```bash
-npm test            # 558 tests, no framework, about a second
+npm test            # 640 tests, no framework, about a second
 npm run build       # three custom gates, two typechecks, then vite
 ```
 
