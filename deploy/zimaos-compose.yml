@@ -1,28 +1,21 @@
 # VolkBuster Video — ZimaOS "Install Custom App" → YAML tab.
 #
-# Paste this whole file into the YAML tab, fill the three secrets, Install.
+# Paste this whole file into the YAML tab and hit Install. Nothing to fill in.
 #
-# BUILD THE IMAGE FIRST. ZimaOS pulls images; it cannot build from a Dockerfile,
-# and there is no published image until you push a v*.*.* tag and make the GHCR
-# package public. Over SSH to the NAS:
+# NOTHING TO BUILD, NOTHING TO CLONE. The image is published to GHCR by
+# .github/workflows/publish-image.yml on every push to main, multi-arch
+# (amd64 + arm64). Paste this, hit Install, done.
 #
-#   sudo git clone https://github.com/vanticstudio/Volk-Buster-Video.git /DATA/volkbuster-src
-#   sudo env DOCKER_CONFIG=/DATA/.docker docker build -t volkbuster-video:latest /DATA/volkbuster-src
+# ONE-TIME, ON GITHUB: the first push creates the package PRIVATE, and a private
+# package cannot be pulled anonymously. Open
+#   https://github.com/users/vanticstudio/packages/container/volk-buster-video/settings
+# and set visibility to Public. Until you do, `docker pull` 403s and ZimaOS
+# reports the image as not found.
 #
-# This file then finds it locally — no registry involved.
-#
-# TO UPDATE after making changes:
-#
-#   sudo /DATA/volkbuster-src/deploy/update.sh --image-only
-#
-# then hit restart on the app in ZimaOS. --image-only rebuilds the image and
-# stops there, leaving the container to ZimaOS, which owns it once the app was
-# installed through the UI. Letting both manage the same container is how you
-# end up with two of them fighting over port 3355.
-#
-# Your data survives every update: sessions, the chosen Plex server and the
-# generated keys live in the volume below, which is reattached rather than
-# recreated. Nobody signs in again and setup is not repeated.
+# TO UPDATE: push to main, wait for the Actions run, then hit restart (or
+# re-pull) in ZimaOS. Your data survives — sessions, the chosen Plex server and
+# the generated keys live in the volume below, which is reattached rather than
+# recreated, so nobody signs in again and setup is not repeated.
 #
 # ONE PUBLIC PORT. The store app runs on loopback inside the container and is
 # reachable only through the front door, which checks a Plex session first. The
@@ -33,7 +26,7 @@ name: volkbuster
 
 services:
   volkbuster:
-    image: volkbuster-video:latest
+    image: ghcr.io/vanticstudio/volk-buster-video:latest
     container_name: volkbuster
     restart: unless-stopped
     init: true

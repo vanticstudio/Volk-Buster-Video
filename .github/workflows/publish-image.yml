@@ -26,6 +26,10 @@ name: Publish Docker image
 
 on:
   push:
+    # Every push to main republishes :latest, so the install instructions point
+    # at something that exists from the first commit rather than only after a
+    # release is cut. Version tags additionally publish X.Y.Z and X.Y.
+    branches: ["main"]
     tags: ["v*.*.*"]
   workflow_dispatch:
 
@@ -125,6 +129,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            # `latest` on every main build. This is the tag the install
+            # instructions and the compose files name, so it has to track main
+            # rather than only appear when a version tag is pushed.
+            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
 
       - name: Create the multi-arch manifest

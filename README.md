@@ -67,23 +67,35 @@ served behind it — that's the instance pool.
 
 Needs **Node 22.6+** (the test runner uses type stripping).
 
-### Docker (a NAS, or anything else)
+### Docker — one command
 
 ```bash
-git clone https://github.com/vanticstudio/Volk-Buster-Video.git && cd Volk-Buster-Video
-docker compose up -d
-docker logs volkbuster | grep -i "setup code"
-open http://<host>:3355
+docker run -d --name volkbuster --restart unless-stopped \
+  -p 3355:3355 -v volkbuster-data:/data \
+  ghcr.io/vanticstudio/volk-buster-video:latest
 ```
 
-Nothing to configure first. The signing and encryption keys are generated on
-first boot and kept beside the database — a machine makes better ones than you
-can, and there is nothing to paste or leak. Which Plex server the store gates on
-is chosen in the browser, from a list of the servers you own.
+Or with compose:
 
-The setup code is printed to the log and asked for once. Reading it proves you
-control the host, which stops the first stranger who finds the address from
-claiming your store. It is cleared the moment setup finishes.
+```bash
+curl -O https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/main/docker-compose.yml
+docker compose up -d
+```
+
+Then read the setup code and open the app:
+
+```bash
+docker logs volkbuster | grep -i "setup code"
+```
+
+Nothing to configure, nothing to clone, nothing to build. The image is published
+multi-arch (amd64 + arm64) on every push to `main`. Signing and encryption keys
+are generated on first boot and kept beside the database; which Plex server the
+store gates on is chosen in the browser, from a list of the servers you own.
+
+The setup code is asked for once. Reading it from the log proves you control the
+host, which stops the first stranger who finds the address from claiming your
+store. It is cleared the moment setup finishes.
 
 ### From source
 

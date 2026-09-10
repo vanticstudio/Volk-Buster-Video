@@ -12,9 +12,9 @@
 
 services:
   volkbuster:
-    build: .
-    # Or pull a published image instead of building from the clone:
-    #   image: ghcr.io/vanticstudio/volk-buster-video:latest
+    image: ghcr.io/vanticstudio/volk-buster-video:latest
+    # Or build from a clone instead of pulling:
+    #   build: .
     container_name: volkbuster
     restart: unless-stopped
     init: true
