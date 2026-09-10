@@ -32,21 +32,13 @@ services:
     # when per-user rendering instances land.
 
     environment:
-      # ── Required. The container refuses to start without these. ────────────
+      # NOTHING IS REQUIRED HERE. The session-signing and token-encryption keys
+      # are generated on first boot and stored beside the database; the Plex
+      # server is chosen in the browser during setup. After `up -d`, read the
+      # setup code with:  docker logs volkbuster | grep -i "setup code"
       #
-      # Your Plex server's machine identifier. Everyone who can reach THIS
-      # server in Plex can enter the store; nobody else can. Find it at:
-      #   https://plex.tv/api/v2/resources?X-Plex-Token=YOUR_TOKEN
-      PLEX_MACHINE_ID: "${PLEX_MACHINE_ID:?set PLEX_MACHINE_ID in .env}"
-      # Signs session cookies. Anyone who learns it can mint a session as any
-      # user, including you. Generate with:
-      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-      SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET in .env}"
-      # Encrypts viewers' Plex tokens at rest. Without it the database is a
-      # plaintext credential store for everyone you shared a library with.
-      TOKEN_ENCRYPTION_KEY: "${TOKEN_ENCRYPTION_KEY:?set TOKEN_ENCRYPTION_KEY in .env}"
-
-      # ── Optional ───────────────────────────────────────────────────────────
+      # Set PLEX_MACHINE_ID / SESSION_SECRET / TOKEN_ENCRYPTION_KEY only if you
+      # manage secrets externally; env wins over the generated values.
       PORT: "3355"
       APP_PORT: "1420"
       DATABASE_PATH: "/data/store.db"

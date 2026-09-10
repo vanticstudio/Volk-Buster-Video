@@ -25,7 +25,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { loadConfig, type FrontDoorConfig } from './config.ts';
 import { FrontDoorStore } from './store.ts';
@@ -35,6 +35,8 @@ import { createPin, claimPin, fetchAccount, fetchResources, type PlexClientIdent
 import { assertWritable } from './owner-keys.ts';
 import { signInPage, signedInPage } from './signin-page.ts';
 import { proxyToApp } from './app-proxy.ts';
+import { setupPage } from './setup-page.ts';
+import { saveInstance, isConfigured, type InstanceSecrets } from './bootstrap.ts';
 
 const COOKIE = 'hv_session';
 
@@ -149,7 +151,28 @@ async function readJsonBody(req: IncomingMessage, limitBytes = 64 * 1024): Promi
 
 // ─── The service ─────────────────────────────────────────────────────────────
 
-export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: () => number = Date.now) {
+export function createFrontDoor(
+  cfg: FrontDoorConfig,
+  db: FrontDoorStore,
+  now: () => number = Date.now,
+  instance?: InstanceSecrets,
+) {
+  /**
+   * First-run state. Held in a closure so a test can drive setup without
+   * touching disk, and mutated in place when setup completes so the running
+   * process starts gating immediately rather than needing a restart.
+   */
+  const inst: InstanceSecrets = instance ?? {
+    sessionSecret: cfg.sessionSecret,
+    tokenKey: '',
+    setupToken: null,
+    plexMachineId: cfg.plexMachineId || null,
+    plexClientId: process.env.PLEX_CLIENT_ID || 'volkbuster-front-door',
+  };
+  /** Cleared once a setup code is accepted, so the code is single-use. */
+  let setupClaimed = false;
+  /** The Plex token of whoever is completing setup, held only until they pick. */
+  let setupToken: string | null = null;
   /**
    * Sign-in state belongs to THIS front door, not to the module.
    *
@@ -191,7 +214,7 @@ export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: (
   const identity: PlexClientIdentity = {
     // Stable per install. See plex-client.ts — Plex keys session eviction off
     // this, so it is read from config and only generated once.
-    clientId: process.env.PLEX_CLIENT_ID || 'volkbuster-front-door',
+    clientId: process.env.PLEX_CLIENT_ID || inst.plexClientId,
     product: process.env.PLEX_PRODUCT || 'VolkBuster Video',
     version: '0.15.0',
     device: 'VolkBuster Front Door',
@@ -264,6 +287,78 @@ export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: (
         });
         res.end(font);
         return;
+      }
+
+      // ── First run ──────────────────────────────────────────────────────
+      //
+      // Until a Plex server is chosen there is nothing to check anyone against,
+      // so these are open by necessity. The setup CODE is what stands in for a
+      // session: it is printed to the container log, so producing it proves
+      // control of the host, which is exactly the claim being made.
+      if (!isConfigured(inst)) {
+        if (path === '/setup' || (path === '/' && req.method === 'GET')) {
+          return html(res, 200, setupPage());
+        }
+
+        if (path === '/setup/claim' && req.method === 'POST') {
+          const body = await readJsonBody(req) as { token?: string };
+          const given = String(body?.token ?? '').trim().toLowerCase();
+          const expected = (inst.setupToken || '').toLowerCase();
+          // Length-checked before compare so a wrong-length guess cannot throw.
+          const ok = expected.length > 0 && given.length === expected.length
+            && timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+          if (!ok) return json(res, 403, { error: 'That setup code is not right. Check the container log.' });
+          setupClaimed = true;
+          return json(res, 200, { ok: true });
+        }
+
+        if (path === '/setup/claim-pin' && req.method === 'POST') {
+          if (!setupClaimed) return json(res, 403, { error: 'Enter the setup code first.' });
+          const body = await readJsonBody(req) as { id?: number };
+          const id = Number(body?.id);
+          if (!Number.isFinite(id) || !pendingPins.has(id)) {
+            return json(res, 400, { error: 'unknown or expired sign-in' });
+          }
+          const tok = await claimPin(id, identity);
+          if (!tok) return json(res, 202, { pending: true });
+          pendingPins.delete(id);
+          setupToken = tok;
+          // Only servers this account OWNS. You cannot point the store at
+          // somebody else's library, and gating on a server you do not own
+          // would hand its owner the ability to lock you out by unsharing.
+          const resources = await fetchResources(tok, identity);
+          const servers = (Array.isArray(resources) ? resources : [])
+            .filter((r) => r && r.owned === true && typeof r.provides === 'string'
+              && r.provides.split(',').some((x: string) => x.trim() === 'server'))
+            .map((r) => ({ id: String(r.clientIdentifier), name: String((r as { name?: string }).name || 'Plex Server') }));
+          return json(res, 200, { servers });
+        }
+
+        if (path === '/setup/finish' && req.method === 'POST') {
+          if (!setupClaimed || !setupToken) return json(res, 403, { error: 'Start setup again.' });
+          const body = await readJsonBody(req) as { machineId?: string };
+          const machineId = String(body?.machineId ?? '').trim();
+          // Re-verify against Plex rather than trusting the posted id: the
+          // browser could send anything, and this is the one write that decides
+          // what the whole gate checks against forever after.
+          const resources = await fetchResources(setupToken, identity);
+          const owns = resources.some((r) => r && r.clientIdentifier === machineId && r.owned === true);
+          if (!machineId || !owns) return json(res, 403, { error: 'You do not own that server.' });
+
+          inst.plexMachineId = machineId;
+          inst.setupToken = null;   // single use, and the surface closes with it
+          cfg.plexMachineId = machineId;
+          saveInstance(cfg.databasePath, inst);
+          setupToken = null;
+          console.log(`[front-door] setup complete — gating Plex server ${machineId}`);
+          return json(res, 200, { ok: true });
+        }
+
+        if (path === '/healthz') return json(res, 200, { ok: true, setup: 'pending' });
+        if (path === '/signin/archivo-black.ttf') { /* fall through to the font route */ }
+        else if (path !== '/auth/pin') {
+          return json(res, 503, { error: 'This store has not been set up yet.' });
+        }
       }
 
       // Begin sign-in. Deliberately reachable without a session — it is how you
@@ -409,11 +504,28 @@ export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: (
 
 /** Entry point. Only runs when this module is executed directly. */
 export function main(): void {
-  const cfg = loadConfig();
+  const { cfg, instance } = loadConfig();
   const db = new FrontDoorStore(cfg.databasePath, cfg.tokenKey);
-  const handler = createFrontDoor(cfg, db);
+  const handler = createFrontDoor(cfg, db, Date.now, instance);
   createServer((req, res) => { void handler(req, res); }).listen(cfg.port, () => {
-    console.log(`[front-door] listening on :${cfg.port}, gating Plex server ${cfg.plexMachineId}`);
+    if (isConfigured(instance)) {
+      console.log(`[front-door] listening on :${cfg.port}, gating Plex server ${instance.plexMachineId}`);
+      return;
+    }
+    // The setup code goes to the log on purpose: reading it is what proves
+    // control of the host, and it is the only thing standing between a
+    // brand-new store and whoever finds the address first.
+    console.log('');
+    console.log('  ┌────────────────────────────────────────────────────────┐');
+    console.log('  │  VolkBuster Video is not set up yet.                   │');
+    console.log('  │                                                        │');
+    console.log(`  │  Open  http://<this-host>:${String(cfg.port).padEnd(28)}│`);
+    console.log(`  │  Setup code:  ${String(instance.setupToken).padEnd(41)}│`);
+    console.log('  │                                                        │');
+    console.log('  │  Secrets were generated automatically and stored        │');
+    console.log('  │  beside the database. Nothing to configure by hand.     │');
+    console.log('  └────────────────────────────────────────────────────────┘');
+    console.log('');
   });
 }
 

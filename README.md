@@ -71,10 +71,19 @@ Needs **Node 22.6+** (the test runner uses type stripping).
 
 ```bash
 git clone <your-repo> && cd volkbuster-video
-cp server/.env.example .env             # fill in the three required values
 docker compose up -d
+docker logs volkbuster | grep -i "setup code"
 open http://<host>:3355
 ```
+
+Nothing to configure first. The signing and encryption keys are generated on
+first boot and kept beside the database — a machine makes better ones than you
+can, and there is nothing to paste or leak. Which Plex server the store gates on
+is chosen in the browser, from a list of the servers you own.
+
+The setup code is printed to the log and asked for once. Reading it proves you
+control the host, which stops the first stranger who finds the address from
+claiming your store. It is cleared the moment setup finishes.
 
 ### From source
 
@@ -86,18 +95,15 @@ npm run serve &                         # the store, on loopback
 npm run server                          # the front door, on :3355
 ```
 
+Neither needs configuration. `server/.env.example` exists only for deployments
+that manage secrets externally.
+
 Two processes, one public port. The store app has no authentication of its own,
 so it binds to loopback and is reachable only through the front door, which
 checks a Plex session first and then proxies. **Never publish `APP_PORT`** —
 doing so serves the whole library to anyone who finds it.
 
-Generate the two secrets with
-`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-`PLEX_MACHINE_ID` is your server's `clientIdentifier`, from
-`https://plex.tv/api/v2/resources?X-Plex-Token=YOUR_TOKEN`. The front door
-refuses to start without it, `SESSION_SECRET` and `TOKEN_ENCRYPTION_KEY` —
-each of those fails silently and dangerously when absent, so it fails loudly
-instead.
+
 
 ```bash
 npm test            # 539 tests, no framework, about a second

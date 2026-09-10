@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="VolkBuster Video">
+  <!--
+    App icon for NAS dashboards (ZimaOS / CasaOS tiles), where it is shown at
+    roughly 64-96px among a grid of other apps.
+
+    Square, not the wide storefront board: a 640x400 mark letterboxed into a
+    square tile wastes most of its height, and at tile size the wordmark it
+    carries is unreadable anyway. So this is a STACKED lockup — the same blue
+    board, the same cream keyline, VOLK over BUSTER — which keeps the identity
+    legible at the size it is actually seen.
+
+    textLength pins both words to the same measure. It makes the stack read as
+    one block rather than two words of accidental widths, and it survives
+    Archivo Black not being available to whatever renders this.
+  -->
+  <rect width="512" height="512" rx="96" fill="#0d1018"/>
+  <rect x="48" y="104" width="416" height="304" rx="34" fill="#1a49c2"/>
+  <rect x="78" y="134" width="356" height="244" rx="18" fill="none" stroke="#f2e8c9" stroke-width="10"/>
+  <text x="256" y="248" text-anchor="middle"
+        font-family="'Archivo Black','Arial Black',Impact,sans-serif" font-size="96"
+        fill="#f2e8c9" textLength="286" lengthAdjust="spacingAndGlyphs">VOLK</text>
+  <text x="256" y="336" text-anchor="middle"
+        font-family="'Archivo Black','Arial Black',Impact,sans-serif" font-size="96"
+        fill="#f2e8c9" textLength="286" lengthAdjust="spacingAndGlyphs">BUSTER</text>
+</svg>

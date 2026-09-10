@@ -32,19 +32,18 @@ services:
       - "3355:3355"
 
     environment:
-      # ── Required. The container refuses to start without these. ────────────
+      # NOTHING IS REQUIRED HERE. The session-signing and token-encryption keys
+      # are random bytes the server generates on first boot and keeps beside the
+      # database — a machine makes better ones than a human can, and there is
+      # nothing to paste, leak or lose. Which Plex server the store gates on is
+      # chosen in the browser, from a list of the servers you own.
       #
-      # Your Plex server's clientIdentifier, from:
-      #   https://plex.tv/api/v2/resources?X-Plex-Token=YOUR_TOKEN
-      # Everyone whose Plex account can reach THIS server gets in; nobody else.
-      PLEX_MACHINE_ID: PASTE_YOUR_MACHINE_ID
-      # Generate each of these with:
-      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-      # or, if the NAS has no node:  openssl rand -hex 32
-      SESSION_SECRET: PASTE_A_64_CHAR_HEX_STRING
-      TOKEN_ENCRYPTION_KEY: PASTE_A_DIFFERENT_64_CHAR_HEX_STRING
-
-      # ── Optional ───────────────────────────────────────────────────────────
+      # After installing, read the setup code from the log:
+      #   docker logs volkbuster | grep -i "setup code"
+      # then open the app and follow it.
+      #
+      # Set PLEX_MACHINE_ID / SESSION_SECRET / TOKEN_ENCRYPTION_KEY here only if
+      # you manage secrets externally; env wins over the generated values.
       PORT: "3355"
       APP_PORT: "1420"
       DATABASE_PATH: /data/store.db
@@ -75,6 +74,9 @@ services:
       category: Media
       main: volkbuster
       port_map: "3355"
+      # Served straight from the repo so the tile matches the app. Point this at
+      # your own fork once it is pushed — GitHub raw URLs are what ZimaOS reads.
+      icon: https://raw.githubusercontent.com/<your-github-user>/volkbuster-video/main/deploy/icon/volkbuster-icon-256.png
       scheme: http
       index: /
       description:

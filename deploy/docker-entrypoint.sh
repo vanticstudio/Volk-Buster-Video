@@ -18,15 +18,11 @@ set -eu
 : "${APP_PORT:=1420}"
 export APP_ORIGIN="http://127.0.0.1:${APP_PORT}"
 
-for required in PLEX_MACHINE_ID SESSION_SECRET TOKEN_ENCRYPTION_KEY; do
-  eval "value=\${$required:-}"
-  if [ -z "$value" ]; then
-    echo "FATAL: $required is not set. See server/.env.example." >&2
-    echo "Generate the two secrets with:" >&2
-    echo "  node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"" >&2
-    exit 1
-  fi
-done
+# No required environment. The front door generates its own signing and
+# encryption keys on first boot and keeps them beside the database, and the
+# Plex server is chosen through the setup page. Both used to be pasted in here,
+# which was the wrong shape: one is a job a machine does strictly better than a
+# human, and the other deserved a list to pick from rather than a raw API URL.
 
 echo "[entrypoint] store app  -> 127.0.0.1:${APP_PORT} (loopback only)"
 npx vite preview --port "$APP_PORT" --strictPort --host 127.0.0.1 &
