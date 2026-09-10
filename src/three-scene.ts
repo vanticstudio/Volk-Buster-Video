@@ -129,7 +129,7 @@ import { retailAudio } from './audio';
 import { clearActiveSignage } from './fixtures/signage';
 import { CarriedTapes, CarryPose, showClerkToast, disposeClerkToast } from './carried-tapes';
 import { BackRoom, disposeBackRoomFade } from './back-room';
-import { RentalRecord, loadRentalRecord, clearRentalRecord, isLockedOut, formatUnlockLabel } from './rental-clock';
+import { RentalRecord, loadRentalRecord, clearRentalRecord, isLockedOut } from './rental-clock';
 import { perfTrace, perfSlot } from './perf-trace';
 import { ShelfClasps, type ClaspTarget } from './fixtures/shelf-clasp';
 import { requestMovie } from './jellyseerr';
@@ -625,6 +625,9 @@ export class StoreScene {
   // moment the ritual ends — the camera then glides to the normal target —
   // and any user navigation (updateCameraTarget) cancels it early.
   public returnDropWatch = false;
+  /** Door-denied stamp; a second BACK inside the window returns the rentals
+   *  early. 0 = unarmed. The rule is store-rental.ts's tryBackRoomDoor. */
+  public rentalEarlyReturnArmedAt = 0;
   public readonly returnDropWatchPos = new THREE.Vector3();
   public readonly returnDropWatchLook = new THREE.Vector3();
   // Saved camera target while the diegetic search terminal is docked, so
@@ -4132,12 +4135,8 @@ export class StoreScene {
         return true;
       }
       if (room.state !== 'view') return true; // mid-insert/watch — ignore
-      if (this.rentalUnlocked) {
-        this.exitBackRoomToStore();
-      } else if (this.rentalRecord) {
-        retailAudio.playDenyBuzz();
-        this.onConsoleLog(`[System] The door's locked — tapes are due back ${formatUnlockLabel(this.rentalRecord)}.`, 'system');
-      }
+      if (this.rentalUnlocked) this.exitBackRoomToStore();
+      else if (this.rentalRecord) rental.tryBackRoomDoor(this);
       return true;
     }
     // T22: leave the checkout counter (keeping the carried tapes) — back to

@@ -124,6 +124,41 @@ export function enterBackRoom(scene: StoreScene, record: RentalRecord, opts: { f
   scene.scheduleRentalUnlock();
 }
 
+/**
+ * BACK at the back-room door, while the rental is still running.
+ *
+ * LOCKED, BUT NEVER TRAPPED. The lockout is the conceit — you took the tapes
+ * home for the week — and it used to be absolute: BACK buzzed, logged a line
+ * to a console overlay most viewers never open, and that was the whole story
+ * until the due-back time. On the public port that is a dead end with no way
+ * out at all, because viewer mode refuses the settings drawer the dev unlock
+ * used to live behind. A viewer who rented on a Friday was stuck until the
+ * following Friday.
+ *
+ * A video store has always had an answer for this, and it is not a secret key:
+ * you take them back early. So the first BACK still denies — the conceit
+ * survives, and one stray press cannot end a rental — and a second within the
+ * window returns them, through the chute at the entrance on the way in.
+ */
+const EARLY_RETURN_WINDOW_MS = 5000;
+
+export function tryBackRoomDoor(scene: StoreScene): void {
+  if (!scene.rentalRecord) return;
+  const now = performance.now();
+  const armed = scene.rentalEarlyReturnArmedAt;
+  if (armed && now - armed < EARLY_RETURN_WINDOW_MS) {
+    scene.rentalEarlyReturnArmedAt = 0;
+    scene.onConsoleLog('[System] Taking them back early — into the return chute they go.', 'system');
+    exitBackRoomToStore(scene, true);
+    return;
+  }
+  scene.rentalEarlyReturnArmedAt = now;
+  retailAudio.playDenyBuzz();
+  scene.onConsoleLog(
+    `[System] The door's locked — tapes are due back ${formatUnlockLabel(scene.rentalRecord)}. `
+    + 'Press BACK again to return them early.', 'system');
+}
+
 export function exitBackRoomToStore(scene: StoreScene, force = false): void {
   if (!force && !scene.rentalUnlocked) return;
   // Resolve the rented titles BEFORE the record is cleared — they go into

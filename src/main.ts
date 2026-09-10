@@ -709,6 +709,20 @@ const counterTerminalButtons = [...COUNTER_TERMINAL_ALL_ROWS];
 // localStorage flag the front door writes into the page on every document load
 // (server/plex-connection.ts), because the store cannot otherwise tell whether
 // anything is in front of it.
+/**
+ * The browse hint.
+ *
+ * "SETTINGS & HELP AT THE COUNTER" stopped being true the day viewer mode
+ * landed: the counter terminal offers SIGN OUT and RETURN TO STORE there, and
+ * openSettingsDrawer refuses outright. Pointing a viewer at a counter that
+ * cannot help them is worse than saying nothing.
+ */
+function browseHintText(): string {
+  return isViewerMode()
+    ? 'OK TO EXAMINE  \u2022  BACK OUT  \u2022  SIGN OUT AT THE COUNTER'
+    : 'OK TO EXAMINE  \u2022  BACK OUT  \u2022  SETTINGS & HELP AT THE COUNTER';
+}
+
 function isViewerMode(): boolean {
   try {
     return localStorage.getItem('bb_viewer_only') === '1';
@@ -870,7 +884,7 @@ function updateMovieHUD(movie: Movie | null) {
           : 'FLIP CASE  •  OK TO PLAY  •  PICK A NAME ON THE BACK';
       }
     } else {
-      hint.textContent = 'OK TO EXAMINE  •  BACK OUT  •  SETTINGS & HELP AT THE COUNTER';
+      hint.textContent = browseHintText();
     }
   }
 }
@@ -922,7 +936,7 @@ function updateHUDForMode(mode: string) {
       // T22: with a tape in hand, surface the route to the counter.
       text = storeScene?.canHoldToCheckout()
         ? 'OK TO EXAMINE  •  CHECK OUT: BACK, THEN THE COUNTER'
-        : 'OK TO EXAMINE  •  BACK OUT  •  SETTINGS & HELP AT THE COUNTER';
+        : browseHintText();
       break;
     case 'inspect':
       // T22: with carry mode on, the confirm takes the tape instead of playing.
@@ -939,8 +953,15 @@ function updateHUDForMode(mode: string) {
       break;
     case 'backroom':
       // T23: home with the rentals. Arrows pick a tape, OK reads/plays it,
-      // BACK tries the door (locked until the due-back time).
-      text = 'ARROWS PICK A TAPE  •  OK TO READ OR PLAY  •  BACK FOR THE DOOR';
+      // BACK tries the door.
+      //
+      // The door is locked until the due-back time, and the old line said only
+      // "BACK FOR THE DOOR" — so the one control that appears to leave just
+      // buzzed, and the explanation went to a console overlay most viewers
+      // never open. State the real rule, including the way out.
+      text = storeScene?.rentalUnlocked === false && storeScene?.rentalRecord
+        ? 'ARROWS PICK A TAPE  •  OK TO READ OR PLAY  •  BACK TWICE TO RETURN THEM EARLY'
+        : 'ARROWS PICK A TAPE  •  OK TO READ OR PLAY  •  BACK FOR THE DOOR';
       break;
     case 'person-endcap':
       text = 'OK TO GO TO THE MOVIE  •  BACK TO RETURN';
