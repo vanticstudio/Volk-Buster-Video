@@ -17,10 +17,12 @@
 # the generated keys live in the volume below, which is reattached rather than
 # recreated, so nobody signs in again and setup is not repeated.
 #
-# ONE PUBLIC PORT. The store app runs on loopback inside the container and is
-# reachable only through the front door, which checks a Plex session first. The
-# store has no authentication of its own, so do NOT add a mapping for 1420 —
-# that would serve your whole library to anyone who found the port.
+# ONE INTERNET-FACING PORT. Two are published below: 3355, the front door, and
+# 3366, the owner's console — LAN only, never forwarded in. The store app runs
+# on loopback inside the container and is reachable only through the front door,
+# which checks a Plex session first. The store has no authentication of its own,
+# so do NOT add a mapping for 1420 — that would serve your whole library to
+# anyone who found the port.
 
 name: volkbuster
 

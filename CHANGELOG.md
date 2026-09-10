@@ -57,9 +57,10 @@ small multi-user service, and making it ours.
 
 - **One public port, 3355.** The store app moved to loopback behind it.
 
-- **A management console on port 3366.** Owner-only, and never published — 3355
-  is the port that goes through the Cloudflare tunnel, so keeping the console on
-  one that is simply not published means a routing mistake cannot expose it. It
+- **A management console on port 3366.** Owner-only, published to the LAN and
+  never routed in from outside — 3355 is the port that goes through the
+  Cloudflare tunnel, so keeping the console off it means a routing mistake
+  there cannot reach the console. It
   still authenticates with the same Plex gate plus an owner check, because a LAN
   is not a trust boundary.
 

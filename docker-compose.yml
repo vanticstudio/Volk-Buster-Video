@@ -4,7 +4,9 @@
 #   docker compose up -d
 #   open http://<nas-ip>:3355
 #
-# ONE PUBLIC PORT. The store app runs on loopback INSIDE the container and is
+# ONE INTERNET-FACING PORT. Two are published below — 3355 for the front door,
+# 3366 for the owner's console on the LAN — but only 3355 should ever be routed
+# in from outside. The store app runs on loopback INSIDE the container and is
 # reachable only through the front door, which checks a Plex session first.
 # That is the whole security model: the store has no authentication of its own,
 # so publishing its port would serve the entire library to anyone who found it.

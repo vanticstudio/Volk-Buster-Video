@@ -2,10 +2,11 @@
 #
 #   docker compose up -d
 #
-# TWO PROCESSES, ONE PUBLIC PORT (see deploy/docker-entrypoint.sh):
+# TWO PROCESSES, ONE INTERNET-FACING PORT (see deploy/docker-entrypoint.sh):
 #
 #   store app   vite preview on 127.0.0.1:1420 — never published
 #   front door  Plex gate + reverse proxy on 0.0.0.0:3355 — the only way in
+#   console     owner-only admin on 0.0.0.0:3366 — LAN only, never forwarded
 #
 # The store app has no authentication of any kind, so reaching it means reaching
 # the whole library. Publishing only the front door is what makes the Plex gate

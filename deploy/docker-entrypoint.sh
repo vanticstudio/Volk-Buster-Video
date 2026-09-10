@@ -1,5 +1,5 @@
 #!/bin/sh
-# Container entrypoint: two processes, one public port.
+# Container entrypoint: two processes, one internet-facing port.
 #
 #   store app   vite preview, bound to 127.0.0.1 — NEVER published
 #   front door  Plex gate + reverse proxy, bound to 0.0.0.0:$PORT
@@ -44,7 +44,7 @@ while [ "$i" -lt 60 ]; do
   sleep 1
 done
 
-echo "[entrypoint] front door -> 0.0.0.0:${PORT} (the only public port)"
+echo "[entrypoint] front door -> 0.0.0.0:${PORT} (the only internet-facing port)"
 # --disable-warning: node prints an ExperimentalWarning for both type
 # stripping and node:sqlite on every start. Both are known and deliberate,
 # and they bury the setup banner an operator is reading the log FOR.

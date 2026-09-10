@@ -3,9 +3,9 @@
  *
  * WHY A SECOND PORT rather than a route on the first: the public port is the
  * one behind the tunnel, reachable by everyone the owner shared a library with.
- * The console changes what the store IS, so keeping it on a port that is simply
- * never published means a routing mistake cannot expose it. Same reasoning as
- * the store app on loopback — unreachable beats carefully gated.
+ * The console changes what the store IS, so keeping it on its own port means
+ * the tunnel points at 3355 alone — a routing mistake on the public side has
+ * nothing to reach. The port is published to the LAN, never routed in.
  *
  * IT STILL AUTHENTICATES. A LAN is not a trust boundary: other people's
  * devices, guest wifi and anything already on the network are all on it. The
@@ -194,9 +194,10 @@ export function createAdminServer(
 /**
  * Start the console.
  *
- * Bound to 0.0.0.0 so it is reachable from the LAN — but it is NEVER the port
- * published through a tunnel, and the compose files publish only the public
- * one. Set ADMIN_PORT=0 to switch it off entirely.
+ * Bound to 0.0.0.0 so it is reachable from the LAN. The compose files and the
+ * README's `docker run` publish it to the host on purpose, so an owner can
+ * reach it from another machine; what must never happen is routing it in from
+ * outside, through a tunnel or a router forward. ADMIN_PORT=0 switches it off.
  */
 export function startAdminServer(
   cfg: FrontDoorConfig,
@@ -211,6 +212,6 @@ export function startAdminServer(
   }
   const handler = createAdminServer(cfg, db, instance, identity);
   createServer((req, res) => { void handler(req, res); }).listen(port, () => {
-    console.log(`[admin] management console on :${port} — owner only, do NOT publish this port`);
+    console.log(`[admin] management console on :${port} — owner only, LAN only: never route this port in through a tunnel or a router forward`);
   });
 }

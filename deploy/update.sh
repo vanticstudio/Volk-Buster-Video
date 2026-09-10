@@ -22,6 +22,9 @@ SRC="${SRC:-/DATA/volkbuster-src}"
 IMAGE="${IMAGE:-volkbuster-video:latest}"
 NAME="${NAME:-volkbuster}"
 PORT="${PORT:-3355}"
+# The owner-only console. LAN only — never forward this one in from outside.
+# Set ADMIN_PORT=0 to leave it unpublished and switched off.
+ADMIN_PORT="${ADMIN_PORT:-3366}"
 VOLUME="${VOLUME:-volkbuster-data}"
 
 # ZimaOS has a read-only root filesystem, so docker cannot create its default
@@ -43,14 +46,25 @@ if [ "$IMAGE_ONLY" -eq 1 ]; then
   exit 0
 fi
 
+# The console goes to the LAN, the same way the compose files publish it, and
+# never further. ADMIN_PORT=0 leaves it both unpublished and switched off.
+ADMIN_PUBLISH=""
+if [ "$ADMIN_PORT" != "0" ]; then
+  ADMIN_PUBLISH="-p ${ADMIN_PORT}:${ADMIN_PORT}"
+fi
+
 echo "==> Replacing the $NAME container"
 docker rm -f "$NAME" >/dev/null 2>&1 || true
+# ADMIN_PUBLISH is deliberately unquoted: it word-splits into two arguments, or
+# expands to nothing at all when the console is off.
 docker run -d \
   --name "$NAME" \
   --restart unless-stopped \
   --init \
   -p "${PORT}:${PORT}" \
+  $ADMIN_PUBLISH \
   -e "PORT=${PORT}" \
+  -e "ADMIN_PORT=${ADMIN_PORT}" \
   -e DATABASE_PATH=/data/store.db \
   -v "${VOLUME}:/data" \
   "$IMAGE" >/dev/null

@@ -22,7 +22,7 @@ It is not a menu with a skin on it. It's a store.
 
 
 ```bash
-docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -v volkbuster-data:/data ghcr.io/vanticstudio/volk-buster-video:latest
+docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -p 3366:3366 -v volkbuster-data:/data ghcr.io/vanticstudio/volk-buster-video:latest
 ```
 
 Then get your setup code:
@@ -34,12 +34,20 @@ docker logs volkbuster | grep -i "setup code"
 Open `http://<your-host>:3355`, enter the code, sign in with Plex, pick your
 server. Done.
 
+The second port, `3366`, is your management console: which libraries the store
+stocks, whether the games department exists, and signing every viewer out. Open
+`http://<your-host>:3366` and sign in with Plex again — it also checks that you
+own the server the store gates on. **Keep it on your LAN.** `3355` is the only
+port that should ever go through a tunnel or a router forward. Add
+`-e ADMIN_PORT=0` to the command above, and drop its `-p 3366:3366`, if you
+would rather not run it at all.
+
 **On a NAS**, swap the volume for a real folder so you can see and back up your
 data — a Docker named volume lives under `/var/lib/docker/volumes/` and will not
 show up in a file browser:
 
 ```bash
-docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -v /DATA/AppData/volkbuster:/data ghcr.io/vanticstudio/volk-buster-video:latest
+docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -p 3366:3366 -v /DATA/AppData/volkbuster:/data ghcr.io/vanticstudio/volk-buster-video:latest
 ```
 
 That folder holds `store.db` (sessions and per-viewer settings) and
@@ -80,10 +88,13 @@ externally. You do not need it.
 
 </details>
 
-> **One port, on purpose.** Only `3355` is published. The store itself runs on
-> loopback inside the container and has no authentication of its own — it is
-> reachable only through the front door, which checks a Plex session first.
-> Never map port `1420` out of the container.
+> **Two ports, one of them public.** `3355` is the front door, and the only port
+> that should ever go through a tunnel or a router forward. `3366` is the
+> owner-only console: published to your LAN so you can reach it from another
+> machine, never routed in from outside. The store itself runs on loopback
+> inside the container and has no authentication of its own — it is reachable
+> only through the front door, which checks a Plex session first. Never map port
+> `1420` out of the container.
 
 ---
 
@@ -150,14 +161,17 @@ the instance pool adds is per-viewer rendering on the host GPU.
 
 ## How it fits together
 
-Two processes, one public port. The store app has no authentication of its own,
-so it binds to loopback and is reachable only through the front door, which
-checks a Plex session and then proxies. Upstream's dev endpoints (`/dev-proxy`,
-`/__play`, `/__feedback`) are removed from the production server rather than
-gated — you cannot forget to protect something that is not registered.
+Two processes, three ports, one of them internet-facing. The store app has no
+authentication of its own, so it binds to loopback and is reachable only through
+the front door, which checks a Plex session and then proxies. The management
+console is published to the LAN on its own port and never further. Upstream's
+dev endpoints (`/dev-proxy`, `/__play`, `/__feedback`) are removed from the
+production server rather than gated — you cannot forget to protect something
+that is not registered.
 
 ```
-Internet ──▶ (tunnel/router) ──▶ front door :3355   ← the only public surface
+Internet ──▶ (tunnel/router) ──▶ front door :3355   ← the only way in
+     LAN ──────────────────────▶ console    :3366   ← owner only, LAN only
                   127.0.0.1 ───┬─ store app :1420   ← never exposed
                                └─ rendering instances (later)
 ```

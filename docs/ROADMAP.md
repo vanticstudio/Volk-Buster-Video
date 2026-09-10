@@ -70,9 +70,9 @@ registry API.
 ### Management console on 3366 — `DONE`
 
 Owner-only second port: which libraries the store stocks, whether the games
-department exists, and a sign-everyone-out. Never published — 3355 is what goes
-through the Cloudflare tunnel, and a port that is not published cannot be
-exposed by a routing mistake.
+department exists, and a sign-everyone-out. Published to the LAN, never routed
+in from outside — 3355 is what goes through the Cloudflare tunnel, and keeping
+the console off it means a routing mistake there cannot reach it.
 
 ### Link previews — `DONE`
 
