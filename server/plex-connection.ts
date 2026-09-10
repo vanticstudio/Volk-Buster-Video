@@ -127,7 +127,16 @@ export async function connectionForViewer(
  * this Plex-only fork the key called `jellyfin_url` holds a Plex address.
  * Renaming them would orphan existing installs, so they stay.
  */
-export function connectionBootstrapScript(conn: StoreConnection, userId: string): string {
+export function connectionBootstrapScript(
+  conn: StoreConnection,
+  userId: string,
+  /**
+   * Owner policy as the store's own settings keys — which libraries it carries,
+   * whether the games department exists. Applied on every load so it is policy
+   * rather than a default a viewer can drift away from.
+   */
+  policy: Record<string, string> = {},
+): string {
   const source = {
     id: conn.machineId,
     kind: 'plex',
@@ -143,6 +152,13 @@ export function connectionBootstrapScript(conn: StoreConnection, userId: string)
     jellyfin_token: conn.token,
     jellyfin_userid: '',
     plex_user_id: userId,
+    // Tells the store it is being served through the front door, so it offers a
+    // viewer's menu rather than an owner's: controls, sign out, back to the
+    // store. Everything administrative moved to the management console, and the
+    // public port is reachable by everyone a library was shared with.
+    bb_viewer_only: '1',
+    // Policy last so it cannot be shadowed by a connection key sharing a name.
+    ...policy,
   });
 
   // ESCAPE `<` BEFORE THIS GOES INTO AN INLINE <script>. JSON.stringify quotes

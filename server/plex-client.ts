@@ -131,3 +131,48 @@ export async function fetchResources(token: string, identity: PlexClientIdentity
     return [];
   }
 }
+
+export interface PlexLibrary {
+  /** Namespaced the way the store's own settings key it: `<sourceId>:<key>`. */
+  id: string;
+  title: string;
+  type: string;
+}
+
+/**
+ * The libraries on a server, for the management console's visibility list.
+ *
+ * Talks to the SERVER directly rather than plex.tv, because plex.tv knows which
+ * servers exist but not what is inside them.
+ *
+ * Ids come back already namespaced, because that is the form the store's
+ * `bb_carrylib_*` settings use and the console's job is to produce exactly
+ * those keys. Doing it here keeps the namespacing rule in one place instead of
+ * being re-derived by every caller that thinks it knows the format.
+ */
+export async function listPlexLibraries(
+  serverUrl: string,
+  token: string,
+  sourceId: string,
+): Promise<PlexLibrary[]> {
+  try {
+    const res = await fetch(`${serverUrl.replace(/\/$/, '')}/library/sections`, {
+      headers: { Accept: 'application/json', 'X-Plex-Token': token },
+    });
+    if (!res.ok) return [];
+    const body = await res.json() as { MediaContainer?: { Directory?: Array<Record<string, unknown>> } };
+    const dirs = body?.MediaContainer?.Directory;
+    if (!Array.isArray(dirs)) return [];
+    return dirs
+      .filter((d) => d && (typeof d.key === 'string' || typeof d.key === 'number'))
+      .map((d) => ({
+        id: `${sourceId}:${String(d.key)}`,
+        title: typeof d.title === 'string' ? d.title : `Library ${String(d.key)}`,
+        type: typeof d.type === 'string' ? d.type : 'unknown',
+      }));
+  } catch {
+    // An unreachable server is an empty list, not a crash: the console still
+    // renders and says so, which is more useful than a 500.
+    return [];
+  }
+}

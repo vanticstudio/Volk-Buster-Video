@@ -81,6 +81,16 @@ export class FrontDoorStore {
         PRIMARY KEY (plex_user_id, key)
       );
 
+      -- Instance-wide policy: the owner's decisions, applied to every viewer.
+      -- Its own table rather than a reserved row in user_config, because that
+      -- table has a foreign key to users and policy belongs to no user — the
+      -- constraint correctly refused the shortcut.
+      CREATE TABLE IF NOT EXISTS store_policy (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(plex_user_id);
     `);
   }
@@ -148,6 +158,19 @@ export class FrontDoorStore {
     this.db.prepare('DELETE FROM sessions WHERE plex_user_id = ?').run(uid);
   }
 
+  /**
+   * Sign EVERY viewer out. Returns how many sessions went.
+   *
+   * The owner's lever for "I just unshared a library and want that to bite
+   * now", rather than at each viewer's next scheduled re-validation. Nobody
+   * loses access by this — anyone still shared with signs straight back in.
+   */
+  deleteAllSessions(): number {
+    const n = (this.db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
+    this.db.prepare('DELETE FROM sessions').run();
+    return Number(n) || 0;
+  }
+
   // ─── Per-user config ───────────────────────────────────────────────────────
 
   /** Every setting for one viewer, as the `bb_*` map an instance hydrates from. */
@@ -178,6 +201,23 @@ export class FrontDoorStore {
    */
   clearConfig(uid: string, key: string): void {
     this.db.prepare('DELETE FROM user_config WHERE plex_user_id = ? AND key = ?').run(uid, key);
+  }
+
+  // ─── Instance-wide policy ──────────────────────────────────────────────
+
+  getPolicy(): Record<string, string> {
+    const rows = this.db.prepare('SELECT key, value FROM store_policy')
+      .all() as Array<Record<string, unknown>>;
+    const out: Record<string, string> = {};
+    for (const r of rows) out[String(r.key)] = String(r.value);
+    return out;
+  }
+
+  setPolicy(key: string, value: string, now: number): void {
+    this.db.prepare(`
+      INSERT INTO store_policy (key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(key, value, now);
   }
 
   close(): void {

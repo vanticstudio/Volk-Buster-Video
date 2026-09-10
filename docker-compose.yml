@@ -23,6 +23,12 @@ services:
       # host:container. Change the LEFT number to move it on your NAS; leave the
       # right one alone unless you also change PORT below.
       - "3355:3355"
+      # The management console: library visibility, the games department, and
+      # signing every viewer out. Bound to the LAN deliberately — do NOT put
+      # this one behind a tunnel or forward it from a router. It still requires
+      # a Plex sign-in and the server's owner, so the LAN is not the only lock,
+      # but it should not be reachable from outside at all.
+      - "3366:3366"
 
     # Bridge networking on purpose, unlike upstream, which used host networking
     # so Remote Play's WebRTC could offer the machine's real LAN address. That
@@ -41,6 +47,7 @@ services:
       # manage secrets externally; env wins over the generated values.
       PORT: "3355"
       APP_PORT: "1420"
+      ADMIN_PORT: "3366"   # set to 0 to switch the console off
       # Trust the proxy's client-IP header for per-caller rate limiting.
       # Safe here because only the proxy can reach the published port; off
       # by default because a forgeable key gives an attacker unlimited

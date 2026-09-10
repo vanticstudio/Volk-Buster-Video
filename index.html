@@ -158,6 +158,10 @@
               <button class="power-btn" id="btn-project" style="display:none;">Run on Your Own Server</button>
               <button class="power-btn" id="btn-logout">Change Server / Log Out</button>
               <button class="power-btn" id="btn-exit">Close VolkBuster App</button>
+              <!-- Front-door viewer mode only (see applyViewerModeToPowerMenu
+                   in main.ts): ends the session on the public port. Hidden on
+                   a store nobody is fronting, where there is no session. -->
+              <button class="power-btn" id="btn-signout" style="display:none;">Sign Out</button>
               <button class="power-btn" id="btn-cancel">Return to Store</button>
             </div>
             <p class="power-desc crt-status">READY.</p>

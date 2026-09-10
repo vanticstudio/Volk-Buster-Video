@@ -33,6 +33,8 @@ services:
 
     ports:
       - "3355:3355"
+      # Management console — LAN only. Never expose this one publicly.
+      - "3366:3366"
 
     environment:
       # NOTHING IS REQUIRED HERE. The session-signing and token-encryption keys
@@ -49,6 +51,7 @@ services:
       # you manage secrets externally; env wins over the generated values.
       PORT: "3355"
       APP_PORT: "1420"
+      ADMIN_PORT: "3366"   # 0 switches the console off
       # Trust the proxy's client-IP header for per-caller rate limiting.
       # Safe here because only the proxy can reach the published port; off
       # by default because a forgeable key gives an attacker unlimited

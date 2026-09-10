@@ -50,8 +50,66 @@ export const COUNTER_TERMINAL_LABELS: Record<string, string> = {
   // CRT-only row (#42): opens the BIOS-style date sub-screen that pins the
   // catalog to a rolling point in time (counter-terminal-flow.ts).
   'btn-media-date': 'MEDIA RELEASE DATE (PIN CATALOG)',
+  // Signs out of the STORE FRONT, not out of Plex — the front door drops the
+  // session and the viewer lands back on its sign-in page. Only offered when a
+  // front door is actually in front (see VIEWER_TERMINAL_ROWS in main.ts);
+  // a directly-run store has no session to end.
+  'btn-signout': 'SIGN OUT',
   'btn-cancel': 'RETURN TO STORE',
 };
+
+// ─── The rings ───────────────────────────────────────────────────────────────
+//
+// WHICH ROWS EACH MENU CARRIES, as pure data next to the labels they resolve
+// through. This lived in main.ts, where the CRT ceiling test could only reach
+// it by enumerating COUNTER_TERMINAL_LABELS and subtracting the rows it knew
+// were conditional — a proxy that silently mis-measured the ring the moment a
+// label existed that no ring carried. Here the test pins the real arrays.
+//
+// `demo` is passed in rather than imported: demo-mode.ts reads the DOM, and
+// this module stays node-testable (see the header).
+
+/** The glass power-menu overlay, and the base the CRT ring extends. */
+export function powerMenuRows(demo: boolean): string[] {
+  // Demo mode replaces the unusable logout/exit rows with the standing project
+  // route (#133) — there is no server to change and no app to close.
+  return demo
+    ? ['btn-settings', 'btn-controls', 'btn-suspend', 'btn-cec-toggle', PROJECT_PAGE_BUTTON_ID, 'btn-cancel']
+    : ['btn-settings', 'btn-controls', 'btn-suspend', 'btn-cec-toggle', 'btn-logout', 'btn-exit', 'btn-cancel'];
+}
+
+/**
+ * The counter CRT's ring: the glass rows plus the three the CRT alone carries —
+ * STREAMING SERVICES (#96), MEDIA RELEASE DATE (#42) and MANAGER OVERRIDE, the
+ * only couch-reachable door into SERVICE MODE. Inserted above RETURN TO STORE
+ * so the safe exit stays last.
+ *
+ * At the CRT's physical ceiling minus one row: 11 lines (2 header + 9) seat
+ * only because fitTerminalPitch tightens to its 1.0-leading floor, and removing
+ * 2.5D mode handed back exactly one slot. A new row from here wants a
+ * sub-screen to live under, not a place in this list —
+ * tests/counter-terminal.test.ts fails first, on purpose.
+ */
+export function counterTerminalRows(demo: boolean): string[] {
+  const ids = powerMenuRows(demo);
+  ids.splice(ids.indexOf('btn-cancel'), 0, 'btn-streaming', 'btn-media-date', 'btn-service');
+  return ids;
+}
+
+/**
+ * VIEWER MODE — what a store served through a front door offers.
+ *
+ * The public port is reachable by everyone the owner shared a Plex library
+ * with, and every administrative control now lives on the management console
+ * instead. So the store keeps what a VISITOR needs — the controls reference and
+ * the way out — and drops the rest.
+ *
+ * Not a security boundary and not pretending to be one: the removed rows change
+ * the machine and the store's own configuration, neither of which the front
+ * door takes instructions about. This is about not offering a viewer a menu
+ * full of things that are not theirs, one of which suspends the owner's NAS.
+ */
+export const VIEWER_TERMINAL_ROWS: readonly string[] = ['btn-controls', 'btn-signout', 'btn-cancel'];
 
 // Body lines the header sits above (drawTerminal draws its own
 // "<BRAND> RENTAL SYSTEM" banner), plus where to park the blinking cursor.

@@ -108,3 +108,24 @@ test('a server name with quotes cannot break out of the injected JS', () => {
   assert.doesNotMatch(js, /<\/script>/i);
   assert.doesNotMatch(js, /<script>alert/i);
 });
+
+// ─── Viewer mode ────────────────────────────────────────────────────────────
+
+const CONN = { url: 'https://s.plex.direct:32400', token: 'tok', machineId: 'm1', name: 'Home' };
+
+test('the bootstrap tells the store a front door is in front of it', () => {
+  // The store cannot otherwise know. Without this flag the counter CRT offers a
+  // public viewer SUSPEND SYSTEM (sleeps the owner's NAS), MANAGER OVERRIDE and
+  // CHANGE SERVER — on a port published through a Cloudflare tunnel.
+  const js = connectionBootstrapScript(CONN, 'user-1');
+  assert.match(js, /bb_viewer_only/);
+  assert.match(js, /"bb_viewer_only":"1"/);
+});
+
+test('policy cannot shadow the viewer flag', () => {
+  // policyKeys spreads last so a library key can never be masked by a
+  // connection key — which also means a malformed policy could unset this one.
+  // It cannot: policy only ever emits bb_carrylib_* and bb_games_enabled.
+  const js = connectionBootstrapScript(CONN, 'user-1', { bb_games_enabled: '0' });
+  assert.match(js, /"bb_viewer_only":"1"/);
+});

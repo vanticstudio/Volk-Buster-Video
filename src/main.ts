@@ -137,10 +137,12 @@ import {
   EMBLEM_OPEN_ROW_KEY, isEmblemStudioOpen,
 } from './emblem-editor';
 import {
-  MEDIA_DATE_BUTTON_ID, STREAMING_BUTTON_ID,
   counterTerminalClose, counterTerminalInput, counterTerminalOpen, initCounterTerminalFlow,
 } from './counter-terminal-flow';
-import { PROJECT_PAGE_BUTTON_ID, PROJECT_PAGE_URL } from './counter-terminal';
+import {
+  PROJECT_PAGE_BUTTON_ID, PROJECT_PAGE_URL,
+  VIEWER_TERMINAL_ROWS, counterTerminalRows, powerMenuRows,
+} from './counter-terminal';
 import { buildControlsHelpPanel, HELP_ROW_PREFIX } from './controls-help';
 import type { CandyRow } from './fixtures/period-fixtures';
 import { getCandyDeliveryAdapter } from './candy-delivery';
@@ -688,10 +690,7 @@ const ui = {
 };
 
 let powerMenuIndex = 0;
-// Demo mode replaces the unusable logout/exit rows with the standing project route (#133).
-const powerButtons = isDemoMode
-  ? ['btn-settings', 'btn-controls', 'btn-suspend', 'btn-cec-toggle', PROJECT_PAGE_BUTTON_ID, 'btn-cancel']
-  : ['btn-settings', 'btn-controls', 'btn-suspend', 'btn-cec-toggle', 'btn-logout', 'btn-exit', 'btn-cancel'];
+const powerButtons = powerMenuRows(isDemoMode);
 
 // The single CEC row toggles the display: we track the last state WE commanded
 // (there's no CEC status read-back) and alternate standby/wake. If reality
@@ -699,27 +698,23 @@ const powerButtons = isDemoMode
 // commands are idempotent no-ops when the display is already in that state.
 let cecDisplayAssumedOn = true;
 
-// The counter CRT carries extra rows the glass power menu doesn't:
-// MANAGER OVERRIDE, the diegetic (and only couch-reachable) entry into the
-// SERVICE MODE settings page (review §4.3), MEDIA RELEASE DATE (#42), the
-// catalog-pin sub-screen, and STREAMING SERVICES (#96), the re-entry into the
-// opening-day picker for a store that was already stocked when it shipped.
-// Inserted just above RETURN TO STORE so the safe exit stays last.
-//
-// This ring is now at the CRT's physical ceiling: 11 rows + 2 header lines is
-// 13, which drawTerminal seats only by tightening to its 1.0-leading floor
-// (fitTerminalPitch, #77). A 12th row does not fit and would be clipped with a
-// MORE marker — tests/counter-terminal.test.ts fails first, on purpose. A new
-// row from here on wants a sub-screen to live under, not a slot in this list.
-const COUNTER_TERMINAL_ALL_ROWS = (() => {
-  const ids = [...powerButtons];
-  ids.splice(ids.indexOf('btn-cancel'), 0, STREAMING_BUTTON_ID, MEDIA_DATE_BUTTON_ID, 'btn-service');
-  return ids;
-})();
+const COUNTER_TERMINAL_ALL_ROWS = counterTerminalRows(isDemoMode);
 // The row list the CRT is actually drawing. counter-terminal-flow.ts holds this
 // array BY REFERENCE and re-reads it on every render, so rewriting its contents
 // in place is how the menu changes shape between openings.
 const counterTerminalButtons = [...COUNTER_TERMINAL_ALL_ROWS];
+
+// Viewer mode (VIEWER_TERMINAL_ROWS, counter-terminal.ts) is detected from a
+// localStorage flag the front door writes into the page on every document load
+// (server/plex-connection.ts), because the store cannot otherwise tell whether
+// anything is in front of it.
+function isViewerMode(): boolean {
+  try {
+    return localStorage.getItem('bb_viewer_only') === '1';
+  } catch {
+    return false;
+  }
+}
 // Rows a remote viewer must never be offered. SWITCH TO 2D MODE destroys the 3D
 // scene, and the stream IS that scene's canvas — so the one system menu a
 // viewer can reach (the glass power menu is DOM, invisible to them) used to
@@ -734,9 +729,11 @@ const REMOTE_HIDDEN_TERMINAL_ROWS: string[] = [];
  */
 function openCounterTerminal(): void {
   const remote = isRemotelyDriven();
-  const rows = COUNTER_TERMINAL_ALL_ROWS.filter(
-    (id) => !(remote && REMOTE_HIDDEN_TERMINAL_ROWS.includes(id)),
-  );
+  const rows = isViewerMode()
+    ? [...VIEWER_TERMINAL_ROWS]
+    : COUNTER_TERMINAL_ALL_ROWS.filter(
+      (id) => !(remote && REMOTE_HIDDEN_TERMINAL_ROWS.includes(id)),
+    );
   counterTerminalButtons.length = 0;
   counterTerminalButtons.push(...rows);
   counterTerminalOpen();
@@ -1074,6 +1071,25 @@ function setPowerMenuSelection(index: number) {
       }
     }
   });
+}
+
+/**
+ * Trim the glass power menu to the viewer rows, in place.
+ *
+ * `powerButtons` is read by setPowerMenuSelection and by all three arrow/Enter
+ * handlers, so rewriting its contents is the whole change — nothing downstream
+ * needs to learn about viewer mode. The DOM rows are hidden rather than removed
+ * for the same reason the demo-mode block above hides them: the markup is
+ * static, and hiding is reversible without a reload.
+ */
+function applyViewerModeToPowerMenu(): void {
+  if (!isViewerMode()) return;
+  for (const id of new Set([...powerButtons, ...COUNTER_TERMINAL_ALL_ROWS])) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = VIEWER_TERMINAL_ROWS.includes(id) ? '' : 'none';
+  }
+  document.getElementById('btn-signout')?.style.setProperty('display', '');
+  powerButtons.splice(0, powerButtons.length, ...VIEWER_TERMINAL_ROWS);
 }
 
 function openPowerMenu() {
@@ -2946,6 +2962,15 @@ async function executePowerMenuAction(btnId: string) {
       openSettingsDrawer('Service');
       return;
 
+    case 'btn-signout':
+      // Ends the FRONT DOOR session. A plain navigation rather than a fetch:
+      // the response is a redirect to the sign-in page and the cookie is
+      // cleared on the way, so letting the browser follow it is both simpler
+      // and the thing that actually updates what the viewer is looking at.
+      logToConsole('[System] Signing out of the store front...', 'system');
+      window.location.href = '/signout';
+      return;
+
     case 'btn-controls':
       // Controls & Help reference (UX pass 2026-08): every input the app
       // understands, on one page — reachable from all three menus.
@@ -3754,6 +3779,10 @@ async function main() {
     e.preventDefault();
     openFeedbackPin();
   });
+
+  // Served through the front door: cut the menu down to a viewer's. Applied
+  // after the demo-mode block below so whichever one is active wins last.
+  applyViewerModeToPowerMenu();
 
   // Demo mode: hide logout/exit and reveal the standing project link route (#133).
   if (isDemoMode) {

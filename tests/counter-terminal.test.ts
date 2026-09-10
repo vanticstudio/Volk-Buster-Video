@@ -13,7 +13,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COUNTER_TERMINAL_LABELS,
+  VIEWER_TERMINAL_ROWS,
   counterTerminalLines,
+  counterTerminalRows,
   fitTerminalPitch,
 } from '../src/counter-terminal.ts';
 
@@ -37,7 +39,7 @@ test('idle screen keeps the default pitch', () => {
 });
 
 test('the full manager ring seats without clipping (#77)', () => {
-  const ids = Object.keys(COUNTER_TERMINAL_LABELS).filter((id) => id !== 'btn-project');
+  const ids = counterTerminalRows(false);
   assert.equal(ids.length, 10); // full ring incl. the three CRT-only rows
   const { lines, cursorLine } = counterTerminalLines(ids, ids.length - 1);
   assert.equal(lines.length, 12); // 2 header rows + 10 buttons
@@ -51,7 +53,7 @@ test('the full manager ring seats without clipping (#77)', () => {
 });
 
 test('the demo manager ring seats without clipping (#133)', () => {
-  const ids = Object.keys(COUNTER_TERMINAL_LABELS).filter((id) => id !== 'btn-logout' && id !== 'btn-exit');
+  const ids = counterTerminalRows(true);
   assert.equal(ids.length, 9); // demo ring: logout/exit replaced by project link
   const { lines, cursorLine } = counterTerminalLines(ids, ids.length - 1);
   assert.equal(lines.length, 11); // 2 header rows + 9 buttons
@@ -63,18 +65,64 @@ test('the demo manager ring seats without clipping (#133)', () => {
   assert.ok(BODY_TOP + (lines.length + 0.4) * lineH <= FOOT_TOP + 1e-6);
 });
 
-// #96 added STREAMING SERVICES and put the ring on the CRT's physical ceiling:
-// 13 lines seat only because fitTerminalPitch tightens to its 1.0-leading
-// floor, and the 14th does not fit at any pitch. Removing SWITCH TO 2D MODE
-// along with 2.5D mode handed one of those slots back, so the ring now sits
-// ONE row below the ceiling rather than on it.
+// ─── Viewer mode ────────────────────────────────────────────────────────────
+//
+// The ring a store served through the front door draws. The public port sits
+// behind a Cloudflare tunnel and is reachable by everyone the owner shared a
+// Plex library with, so the CRT there must not offer rows that reconfigure the
+// store or the machine — those moved to the management console on 3366.
+
+test('the viewer ring offers only the basics', () => {
+  // Pinned as an exact list, not a length: the failure this guards against is
+  // a row being ADDED back, and a count assertion passes if one swaps for
+  // another. Every id here must be a row a visitor can safely press.
+  assert.deepEqual([...VIEWER_TERMINAL_ROWS], ['btn-controls', 'btn-signout', 'btn-cancel']);
+});
+
+test('no viewer row reconfigures the store or the machine', () => {
+  // The specific rows that made this necessary. SUSPEND SYSTEM sleeps the
+  // OWNER'S NAS; MANAGER OVERRIDE opens the staff knobs; CHANGE SERVER / LOG OUT
+  // repoints the store's own Plex connection for whoever loads it next.
+  for (const id of ['btn-settings', 'btn-service', 'btn-suspend', 'btn-cec-toggle',
+    'btn-logout', 'btn-exit', 'btn-streaming', 'btn-media-date']) {
+    assert.ok(!VIEWER_TERMINAL_ROWS.includes(id), `${id} must not be offered to a viewer`);
+  }
+});
+
+test('SIGN OUT is offered ONLY in viewer mode', () => {
+  // A directly-run store has no front-door session, so the row would be a dead
+  // navigation to a route nothing serves.
+  for (const demo of [false, true]) {
+    assert.ok(!counterTerminalRows(demo).includes('btn-signout'));
+  }
+  assert.ok(VIEWER_TERMINAL_ROWS.includes('btn-signout'));
+});
+
+test('every viewer row has a CRT label', () => {
+  // The ring is drawn by id; a missing label renders the raw id at the counter.
+  for (const id of VIEWER_TERMINAL_ROWS) {
+    assert.ok(COUNTER_TERMINAL_LABELS[id], `${id} has no label`);
+  }
+});
+
+test('the viewer ring seats with room to spare', () => {
+  const { lines } = counterTerminalLines([...VIEWER_TERMINAL_ROWS], 0);
+  const { lineH, maxLines } = fitTerminalPitch(lines.length, LINE_H, FONT_PX, BODY_SPAN);
+  assert.ok(maxLines >= lines.length);
+  assert.equal(lineH, LINE_H, 'three rows must not need the tightened pitch');
+});
+
+// #96 put the manager ring on the CRT's physical ceiling: 13 lines seat only
+// because fitTerminalPitch tightens to its 1.0-leading floor, and the 14th does
+// not fit at any pitch. Removing SWITCH TO 2D MODE along with 2.5D mode handed
+// one of those slots back, so the ring now sits ONE row below the ceiling.
 //
 // Both halves are asserted deliberately. The first pins the headroom that
 // removal bought, so a future row lands on evidence rather than on hope; the
 // second is the original tripwire, still the thing that must fail HERE, in CI,
 // rather than at the CRT where drawTerminal would clip it behind a MORE marker.
 test('the ring sits one row below its ceiling', () => {
-  const ids = Object.keys(COUNTER_TERMINAL_LABELS).filter((id) => id !== 'btn-project');
+  const ids = counterTerminalRows(false);
 
   const oneMore = counterTerminalLines([...ids, 'btn-hypothetical'], 0).lines;
   assert.ok(

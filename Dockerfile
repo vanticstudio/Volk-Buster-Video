@@ -82,8 +82,10 @@ COPY . .
 # which is attached per request and never enters the bundle.
 RUN npm run build
 
-# The front door only. The store app's port is deliberately not exposed.
-EXPOSE 3355
+# The front door, and the management console. The store app's port is
+# deliberately not exposed. EXPOSE is documentation — publishing is the
+# operator's choice, and 3366 should stay on the LAN.
+EXPOSE 3355 3366
 
 # Probes the PUBLIC port, so the check fails if the gate is down even when the
 # store behind it is fine. A container answering health checks while serving

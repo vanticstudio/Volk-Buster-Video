@@ -37,6 +37,8 @@ import { signInPage, signedInPage } from './signin-page.ts';
 import { proxyToApp } from './app-proxy.ts';
 import { setupPage } from './setup-page.ts';
 import { connectionForViewer, connectionBootstrapScript, type StoreConnection } from './plex-connection.ts';
+import { loadPolicy, policyKeys } from './admin-config.ts';
+import { startAdminServer } from './admin.ts';
 import { saveInstance, isConfigured, type InstanceSecrets } from './bootstrap.ts';
 
 const COOKIE = 'hv_session';
@@ -526,6 +528,18 @@ export function createFrontDoor(
         return html(res, 200, signedInPage(stored?.uid ?? payload.uid, payload.owner));
       }
 
+      // Reachable from the store: the power menu's project row is repointed
+      // here by the bootstrap, and it is a plain link so it works with no
+      // script at all.
+      if (path === '/signout') {
+        db.deleteSession(payload.sid);
+        connCache.delete(payload.sid);
+        clearSessionCookie(req, res);
+        res.writeHead(303, { location: '/' });
+        res.end();
+        return;
+      }
+
       if (path === '/api/me') {
         return json(res, 200, { uid: payload.uid, owner: payload.owner });
       }
@@ -574,7 +588,12 @@ export function createFrontDoor(
         // Plex not answering. The store then shows its own setup terminal, which
         // is a worse experience than a stocked store and a much better one than
         // a blank screen.
-        if (conn) bootstrap = connectionBootstrapScript(conn, payload.uid);
+        // Store policy rides along with the connection: which libraries this
+        // store carries and whether the games department exists are the
+        // owner's decisions, applied to every viewer on every load. Written as
+        // the app's OWN settings keys, so the store needs no knowledge of a
+        // front door to obey them.
+        if (conn) bootstrap = connectionBootstrapScript(conn, payload.uid, policyKeys(loadPolicy(db)));
       }
       proxyToApp(req, res, cfg.appOrigin, bootstrap);
       return;
@@ -599,6 +618,13 @@ export function main(): void {
   // of log turns that into something checkable.
   console.log(`[front-door] state: ${cfg.databasePath} (+ instance.json beside it)`);
   const handler = createFrontDoor(cfg, db, Date.now, instance);
+  startAdminServer(cfg, db, instance, {
+    clientId: process.env.PLEX_CLIENT_ID || instance.plexClientId,
+    product: process.env.PLEX_PRODUCT || 'VolkBuster Video',
+    version: '0.15.0',
+    device: 'VolkBuster Front Door',
+    platform: 'Node',
+  });
   createServer((req, res) => { void handler(req, res); }).listen(cfg.port, () => {
     if (isConfigured(instance)) {
       console.log(`[front-door] listening on :${cfg.port}, gating Plex server ${instance.plexMachineId}`);
