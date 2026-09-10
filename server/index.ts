@@ -592,6 +592,12 @@ export function createFrontDoor(
 export function main(): void {
   const { cfg, instance } = loadConfig();
   const db = new FrontDoorStore(cfg.databasePath, cfg.tokenKey);
+  // Say where state lives, every boot. "I can't see any app data" is otherwise
+  // impossible to answer from the outside: a Docker named volume is under
+  // /var/lib/docker/volumes and invisible to a NAS file browser, and a wrong
+  // DATABASE_PATH writes inside the container where it dies with it. One line
+  // of log turns that into something checkable.
+  console.log(`[front-door] state: ${cfg.databasePath} (+ instance.json beside it)`);
   const handler = createFrontDoor(cfg, db, Date.now, instance);
   createServer((req, res) => { void handler(req, res); }).listen(cfg.port, () => {
     if (isConfigured(instance)) {

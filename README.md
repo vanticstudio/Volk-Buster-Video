@@ -34,6 +34,18 @@ docker logs volkbuster | grep -i "setup code"
 Open `http://<your-host>:3355`, enter the code, sign in with Plex, pick your
 server. Done.
 
+**On a NAS**, swap the volume for a real folder so you can see and back up your
+data — a Docker named volume lives under `/var/lib/docker/volumes/` and will not
+show up in a file browser:
+
+```bash
+docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -v /DATA/AppData/volkbuster:/data ghcr.io/vanticstudio/volk-buster-video:latest
+```
+
+That folder holds `store.db` (sessions and per-viewer settings) and
+`instance.json` (the generated keys and your chosen Plex server). Back it up
+like a credential store, because that is what it is.
+
 **Nothing to clone, build, or configure.** No environment variables, no config
 file, no secrets to generate. The signing and encryption keys are created on
 first boot and kept beside the database; which Plex server the store gates on is
