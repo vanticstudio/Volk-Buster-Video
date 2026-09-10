@@ -43,6 +43,15 @@ const CSS = `
   .row b{display:block;font-weight:600;font-size:15px}
   .row small{color:rgba(242,232,201,.45);font-size:12.5px}
   input[type=checkbox]{width:20px;height:20px;accent-color:${BLUE};flex:none;cursor:pointer}
+  select,input[type=text]{font:inherit;font-size:14px;background:#0a0d14;color:${CREAM};
+    border:1px solid rgba(242,232,201,.28);border-radius:4px;padding:8px 10px;max-width:16rem;flex:none}
+  input[type=text]{width:16rem}
+  select:focus-visible,input:focus-visible{outline:2px solid ${BLUE};outline-offset:1px}
+  .row .warn{display:block;margin-top:4px;color:#ffcfc6}
+  details{margin:0 0 8px}
+  details>summary{cursor:pointer;font-family:'Archivo Black','Arial Black',sans-serif;
+    font-size:17px;margin:30px 0 6px;list-style:revert}
+  details[open]>summary{margin-bottom:10px}
   .btn{font:inherit;font-weight:600;padding:12px 22px;border-radius:4px;border:0;cursor:pointer;
     background:${CREAM};color:${INK}}
   .btn:hover{filter:brightness(1.08)}
@@ -58,13 +67,55 @@ const CSS = `
   [hidden]{display:none!important}
 `;
 
+import type { ConsoleSetting } from './store-settings.ts';
+
 export interface AdminLibrary { id: string; title: string; type: string }
+
+/**
+ * One settings row.
+ *
+ * Every dropdown carries an explicit "Store default" option rather than a way
+ * to CLEAR the setting, and that is deliberate: clearing stops the broadcast,
+ * and a viewer who was handed a value keeps it forever once the broadcast
+ * stops. Choosing the default states it instead, which is what actually pulls
+ * everyone back. See StorePolicy.settings for the long version.
+ */
+function settingRow(def: ConsoleSetting, current: string | undefined): string {
+  const val = current ?? '';
+  const warn = def.warning
+    ? `<small class="warn">${esc(def.warning)}</small>` : '';
+  const blurb = def.blurb ? `<small>${esc(def.blurb)}</small>` : '';
+  const meta = `<span class="grow"><b>${esc(def.label)}</b>${blurb}${warn}</span>`;
+
+  if (def.control === 'checkbox') {
+    const on = val === '1';
+    const unset = current === undefined;
+    return `<label class="row">
+      <input type="checkbox" data-set="${esc(def.key)}" ${on ? 'checked' : ''}
+             ${unset && def.default === '1' ? 'checked' : ''}>
+      ${meta}</label>`;
+  }
+  if (def.control === 'dropdown') {
+    const opts = (def.options ?? []).map((o) =>
+      `<option value="${esc(o.id)}" ${o.id === val ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
+    return `<label class="row">${meta}
+      <select data-set="${esc(def.key)}">
+        <option value="" ${val === '' ? 'selected' : ''}>Store default</option>
+        ${opts}
+      </select></label>`;
+  }
+  return `<label class="row">${meta}
+    <input type="text" data-set="${esc(def.key)}" value="${esc(val)}" placeholder="Store default">
+  </label>`;
+}
 
 export function adminPage(opts: {
   username: string;
   libraries: AdminLibrary[];
   hidden: string[];
   gamesEnabled: boolean;
+  settings: Record<string, string>;
+  catalog: ConsoleSetting[];
   publicPort: number;
 }): string {
   const rows = opts.libraries.map((l) => `
@@ -72,6 +123,24 @@ export function adminPage(opts: {
       <input type="checkbox" data-lib="${esc(l.id)}" ${opts.hidden.includes(l.id) ? '' : 'checked'}>
       <span class="grow"><b>${esc(l.title)}</b><small>${esc(l.type)} · ${esc(l.id)}</small></span>
     </label>`).join('');
+
+  // Sections in catalog order, so the ordering decision lives with the data.
+  // Platforms collapse into a <details>: 21 checkboxes inline would bury the
+  // rest of the page, and they only matter once the games department is on.
+  const order: string[] = [];
+  const grouped = new Map<string, ConsoleSetting[]>();
+  for (const def of opts.catalog) {
+    if (!grouped.has(def.section)) { grouped.set(def.section, []); order.push(def.section); }
+    grouped.get(def.section)!.push(def);
+  }
+  const sections = order.map((name) => {
+    const rows = grouped.get(name)!.map((d) => settingRow(d, opts.settings[d.key])).join('');
+    const collapsible = name.includes('Platforms') || name === 'Advanced';
+    if (collapsible) {
+      return `<details><summary>${esc(name)}</summary><div class="card">${rows}</div></details>`;
+    }
+    return `<h2>${esc(name)}</h2><div class="card">${rows}</div>`;
+  }).join('');
 
   const body = `
   <div class="sign"><b>VOLKBUSTER</b><span>Management</span></div>
@@ -96,10 +165,17 @@ export function adminPage(opts: {
         <small>Per-platform bays and jewel cases. Needs a RomM server; with none configured the aisle is empty.</small></span>
     </label>
   </div>
+${sections}
 
   <div class="bar">
     <button class="btn" id="save" type="button">Save</button>
     <span id="saved" class="ok" hidden>Saved. Viewers pick it up on their next load.</span>
+  </div>
+  <p class="note">Everything above applies to <strong>every</strong> viewer and
+     cannot be changed by them — the public store has no settings of its own.
+     A control left on <em>Store default</em> is not sent at all, so the store's
+     own default applies.
+  <div class="bar" hidden>
   </div>
 
   <h2>Sessions</h2>
@@ -123,11 +199,21 @@ export function adminPage(opts: {
     document.querySelectorAll('input[data-lib]').forEach(function(el){
       if(!el.checked) hidden.push(el.getAttribute('data-lib'));
     });
+    // An empty control means "no opinion" and is simply not sent — the key
+    // stays absent from policy and the store's own default applies. Sending ''
+    // instead would enforce an empty string on every viewer.
+    var settings={};
+    document.querySelectorAll('[data-set]').forEach(function(el){
+      var k=el.getAttribute('data-set');
+      if(el.type==='checkbox'){ settings[k]=el.checked?'1':'0'; return; }
+      if(el.value!=='') settings[k]=el.value;
+    });
     fetch('/api/policy',{method:'PUT',headers:{'content-type':'application/json'},
-      body:JSON.stringify({hiddenLibraries:hidden,gamesEnabled:document.getElementById('games').checked})})
-      .then(function(r){ if(!r.ok) throw new Error('save'); return r.json(); })
-      .then(function(){
+      body:JSON.stringify({hiddenLibraries:hidden,gamesEnabled:document.getElementById('games').checked,settings:settings})})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok, body:b}; }); })
+      .then(function(res){
         btn.disabled=false;
+        if(!res.ok) return fail(res.body && res.body.error ? res.body.error : 'Could not save.');
         var s=document.getElementById('saved'); s.hidden=false;
         setTimeout(function(){ s.hidden=true; },4000);
       })

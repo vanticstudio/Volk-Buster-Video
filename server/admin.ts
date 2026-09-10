@@ -26,6 +26,7 @@ import { grantsAccessTo, isOwnerOf } from './plex-gate.ts';
 import { createPin, claimPin, fetchAccount, fetchResources, listPlexLibraries, type PlexClientIdentity } from './plex-client.ts';
 import { connectionForViewer } from './plex-connection.ts';
 import { loadPolicy, savePolicy, type StorePolicy } from './admin-config.ts';
+import { CONSOLE_SETTINGS, validateSettings } from './store-settings.ts';
 import { adminPage, adminDeniedPage } from './admin-page.ts';
 import { signInPage } from './signin-page.ts';
 
@@ -164,6 +165,8 @@ export function createAdminServer(
           libraries,
           hidden: policy.hiddenLibraries,
           gamesEnabled: policy.gamesEnabled,
+          settings: policy.settings,
+          catalog: CONSOLE_SETTINGS,
           publicPort: cfg.port,
         }));
       }
@@ -173,7 +176,16 @@ export function createAdminServer(
         const hidden = Array.isArray(body?.hiddenLibraries)
           ? body.hiddenLibraries.filter((x): x is string => typeof x === 'string').slice(0, 200)
           : [];
-        savePolicy(db, { hiddenLibraries: hidden, gamesEnabled: body?.gamesEnabled === true }, now());
+        // REPORTED, not silently dropped. A typo'd value that vanishes without
+        // a word sends the owner off to reload the store and wonder why
+        // nothing changed; the console can only tell them if we answer.
+        const { settings, errors } = validateSettings(body?.settings);
+        if (errors.length) return json(res, 400, { error: errors.join(' ') });
+        savePolicy(db, {
+          hiddenLibraries: hidden,
+          gamesEnabled: body?.gamesEnabled === true,
+          settings,
+        }, now());
         return json(res, 200, { ok: true });
       }
 

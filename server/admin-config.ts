@@ -20,6 +20,7 @@
  */
 
 import type { FrontDoorStore } from './store.ts';
+import { RESERVED_KEYS } from './store-settings.ts';
 
 export interface StorePolicy {
   /**
@@ -31,9 +32,24 @@ export interface StorePolicy {
   hiddenLibraries: string[];
   /** The games department. Off unless RomM is configured anyway. */
   gamesEnabled: boolean;
+  /**
+   * Store settings the owner has actually touched, as the app's own keys.
+   *
+   * SPARSE ON PURPOSE. A key absent here means "no opinion" and nothing is
+   * emitted, so the store's own default applies — the same convention
+   * hiddenLibraries uses, and what keeps an owner who only wanted to change
+   * the theme from silently pinning thirty other values as a side effect.
+   *
+   * A key PRESENT here is enforced on every document load. Reverting a setting
+   * therefore writes its default explicitly rather than deleting the key:
+   * deleting would stop the broadcast and strand every viewer on the last
+   * value the owner enforced, with no way to pull them back. Same reasoning as
+   * bb_games_enabled, which has always been stated rather than implied.
+   */
+  settings: Record<string, string>;
 }
 
-export const DEFAULT_POLICY: StorePolicy = { hiddenLibraries: [], gamesEnabled: false };
+export const DEFAULT_POLICY: StorePolicy = { hiddenLibraries: [], gamesEnabled: false, settings: {} };
 
 export function loadPolicy(db: FrontDoorStore): StorePolicy {
   const row = db.getPolicy();
@@ -46,15 +62,32 @@ export function loadPolicy(db: FrontDoorStore): StorePolicy {
     // safe failure here: an owner notices a library they meant to hide far
     // sooner than they notice one that vanished.
   }
+  let settings: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(row.settings || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed)) {
+        // Re-checked on the way OUT as well as in. A row written by an older
+        // build, or edited on disk, must not be able to name a front-door key.
+        if (typeof v === 'string' && !RESERVED_KEYS.has(k)) settings[k] = v;
+      }
+    }
+  } catch {
+    // Same tolerance as hiddenLibraries above: this is read on every document
+    // load, and a bad blob must not be able to take the store down.
+    settings = {};
+  }
   return {
     hiddenLibraries: hidden,
     gamesEnabled: row.games_enabled === '1',
+    settings,
   };
 }
 
 export function savePolicy(db: FrontDoorStore, policy: StorePolicy, now: number): void {
   db.setPolicy('hidden_libraries', JSON.stringify(policy.hiddenLibraries), now);
   db.setPolicy('games_enabled', policy.gamesEnabled ? '1' : '0', now);
+  db.setPolicy('settings', JSON.stringify(policy.settings ?? {}), now);
 }
 
 /**
@@ -65,9 +98,12 @@ export function savePolicy(db: FrontDoorStore, policy: StorePolicy, now: number)
  * removes it from policy — absence has to mean "no opinion".
  */
 export function policyKeys(policy: StorePolicy): Record<string, string> {
-  const out: Record<string, string> = {
-    bb_games_enabled: policy.gamesEnabled ? '1' : '0',
-  };
+  // The settings map goes FIRST so the dedicated fields below always win a
+  // collision. validateSettings already refuses the front door's own keys, and
+  // loadPolicy strips them again on read; this is the third guard, and the one
+  // that holds even if a future caller builds a policy object by hand.
+  const out: Record<string, string> = { ...(policy.settings ?? {}) };
+  out.bb_games_enabled = policy.gamesEnabled ? '1' : '0';
   for (const id of policy.hiddenLibraries) out[`bb_carrylib_${id}`] = '0';
   return out;
 }
