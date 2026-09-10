@@ -54,7 +54,7 @@ import { Footprint } from '../layout-validator';
 import { CheckoutBag } from '../checkout-bag';
 import { ReturnSlot } from './return-slot';
 import { activeStoreFormat } from '../store-format';
-import type { Movie } from '../jellyfin';
+import type { Movie } from '../providers/media-source-provider';
 import { CRT_BLACK, CRT_GOLD, CRT_INK, CRT_TEXT } from '../crt-theme';
 import { brandString } from '../brand-pack';
 import { textureArrayManager } from '../poster-textures';

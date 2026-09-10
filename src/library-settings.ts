@@ -35,7 +35,7 @@
 import { registerSetting } from './settings';
 import { scheduleConfigPush } from './store-config-sync';
 import { knownServerLibraries } from './jellyfin';
-import type { LibrarySummary } from './jellyfin';
+import type { LibrarySummary } from './providers/media-source-provider';
 import {
   LEGACY_SOURCE_ID,
   knownLibrariesBySource,

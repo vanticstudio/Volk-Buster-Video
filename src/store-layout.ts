@@ -5,7 +5,7 @@
 // pure shelf-order logic is unit-testable under plain `node --test` with type
 // stripping (see tests/shelf-order.test.ts).
 import type * as THREE from 'three';
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 // The active STORE FORMAT preset (src/store-format.ts). Resolved once, at
 // module evaluation, from localStorage — which is why every constant below can
 // derive from it and still be a plain `const`. See that module's header for

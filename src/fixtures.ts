@@ -4,7 +4,7 @@
 // implementations (different TV layouts, a different checkout counter) can be
 // dropped in without touching the scene core.
 import * as THREE from 'three';
-import { JellyfinLibrary } from './jellyfin';
+import { JellyfinLibrary } from './providers/media-source-provider';
 import { StorefrontSpec, FixturePlacement } from './store-layout';
 import { Footprint } from './layout-validator';
 import { StoreTheme } from './themes';
@@ -61,7 +61,7 @@ export interface FixtureContext {
   liveMirror?: { textureWidth: number; textureHeight: number };
 }
 
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 
 export interface FixtureSlot {
   movie: Movie;

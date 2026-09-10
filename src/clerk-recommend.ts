@@ -1,4 +1,4 @@
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 
 /**
  * Clerk recommendation brain (T14 Phase C).

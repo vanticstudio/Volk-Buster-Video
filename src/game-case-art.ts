@@ -16,7 +16,7 @@
 // imports it). Anything geometry-shaped — which face, what aspect — is decided
 // there and passed in.
 import * as THREE from 'three';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 
 // One entry per (title, face). Textures are shared by every mesh showing that
 // title and are never evicted mid-session: only the inspected case builds

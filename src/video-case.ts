@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { Movie, Episode } from './jellyfin';
+import { Movie, Episode } from './providers/media-source-provider';
 import { loadGameFaceTexture, isTwoFlapSpine, jewelSpineComposite, uprightSpine } from './game-case-art';
 import { isJewelCasePlatform, JEWEL_FAT_DEPTH_IN } from './jewel-case';
 import { getReviewSnippetForMovie } from './review-snippets';

@@ -6,7 +6,7 @@
 // entries. Every function takes the StoreScene as its first parameter and
 // reads/writes scene state exactly as the original methods did.
 import * as THREE from 'three';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { posterQueue, CASE_HEIGHT, CASE_DEPTH, posterPixelCache, releaseEndcapPosterTexture, getCaseGeometry, getRentalCaseGeometry, createHeroJellyfinMaterials, restampCollectionGapCase } from './video-case';
 import { AISLE_SHELF_HEIGHTS, LEAN_ANGLE, UNIT_FRAME_HEIGHT, unitDepthAtHeight, BACK_WALL_UNIT_IDX, SECTION_CAPACITY, MovieSlot, storeCategory, FixturePlacement, ShelvingUnit } from './store-layout';
 import { ENDCAP_CORE_DEPTH } from './fixtures/genre-endcap';

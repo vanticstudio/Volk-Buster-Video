@@ -8,7 +8,7 @@
 // methods did.
 import * as THREE from 'three';
 import { findTitleByCarryId } from './media-sources';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { CASE_MEDIUM, getRentalCaseGeometry, createHeroRentalMaterials } from './video-case';
 import { BACK_WALL_UNIT_IDX, MovieSlot, STORE_CENTER_X } from './store-layout';
 import { CandyRow } from './fixtures/period-fixtures';

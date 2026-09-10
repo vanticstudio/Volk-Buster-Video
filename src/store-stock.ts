@@ -6,7 +6,7 @@
 // swap. Every function takes the StoreScene as its first parameter and
 // reads/writes scene state exactly as the original methods did.
 import * as THREE from 'three';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { buildGoldClamshellFillers, getGoldCaseMaterials, repaintGoldCase } from './fixtures/gold-clamshell';
 import { posterQueue, CASE_MEDIUM, CASE_HEIGHT, CASE_DEPTH, textureArrayManager, createClonedCaseGeometry, getGlobalFrontMaterials, getGlobalBackMaterials, updateGlobalMaterialsEnvMap, leftmostColorCache, posterPixelCache, reflectionProbes, isGlobalMaterial, lowResCache, createProgramWarmupMaterials, gameShapeKey, gameDimsForShape, gameCaseDims, gameRentalDims, rentalBottomLift, rentalBoxDepth, rentalBoxHeight, beginRebuildDrain, SERIES_DEPTH_MULT } from './video-case';
 import { AISLE_SHELF_HEIGHTS, WALL_SHELF_HEIGHTS, LEAN_ANGLE, STAGGER_OFFSET, UNIT_SIDE_CAPACITY, BACK_WALL_UNIT_IDX, sideEntrySlot, COPY_X_JITTER_RANGE, EXTRA_COPY_DEPTH_STEP, extraCopiesCount, isUnstockedTitle, seededRandom01, MovieSlot } from './store-layout';

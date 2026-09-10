@@ -4,7 +4,7 @@
 // store-fixtures-config.ts, following the FourSidedDisplay reference pattern
 // (src/fixtures/four-sided-display.ts).
 import * as THREE from 'three';
-import { Movie } from '../jellyfin';
+import { Movie } from '../providers/media-source-provider';
 import { FixturePlacement, seededRandom01 } from '../store-layout';
 import { FixtureContext, StoreFixture } from '../fixtures';
 import { Footprint, FLOOR_DISPLAY_CLEARANCE } from '../layout-validator';

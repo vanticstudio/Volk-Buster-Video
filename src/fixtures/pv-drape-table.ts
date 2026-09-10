@@ -44,7 +44,7 @@
 //
 // Viewable alone: `npm run assetshot -- --kind fixture --name pv-drape-table`.
 import * as THREE from 'three';
-import { Movie } from '../jellyfin';
+import { Movie } from '../providers/media-source-provider';
 import { FixturePlacement, FLOOR_FIXTURE_MAX_Z } from '../store-layout';
 import { FixtureContext, SlottedFixture, FixtureSlot } from '../fixtures';
 import { Footprint } from '../layout-validator';

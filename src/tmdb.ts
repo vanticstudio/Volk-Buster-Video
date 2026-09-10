@@ -22,7 +22,7 @@
 // (same localStorage key, same shape) for that reason -- see this module's
 // header comment there for the file-size precedent (streaming-catalog.ts
 // duplicates the TMDB genre table for the identical reason).
-import type { Movie } from './jellyfin.ts';
+import type { Movie } from './providers/media-source-provider';
 import {
   type StreamingServiceDef, type RawDiscoverItem,
   resolveEnabledServices, matchProviderId, ingestStreamingResults, STREAMING_CAP_PER_SERVICE,

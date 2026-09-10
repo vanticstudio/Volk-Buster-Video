@@ -10,7 +10,7 @@
 // Pure 2D-canvas + data; no three.js. drawn by drawJellyfinBack (video-case.ts)
 // onto the 640x960 retail-back canvas. Kept out of video-case.ts so that file
 // stays under its line budget and the derivation stays unit-testable.
-import type { Movie, MediaStreamInfo, MediaPlaybackInfo } from './jellyfin';
+import type { Movie, MediaStreamInfo, MediaPlaybackInfo } from './providers/media-source-provider';
 import { BB_OUTFIT, BB_ORBITRON } from './bundled-fonts';
 
 // ----------------------------------------------------------------------------

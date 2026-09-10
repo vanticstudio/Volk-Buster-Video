@@ -12,7 +12,7 @@
 // passes too) and are imported back here; video-case.ts imports only these
 // two painters plus the layout override, so the cycle is function-level and
 // resolves at call time, never at module evaluation.
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 import {
   drawVerticalText,
   drawVerticalTextUp,

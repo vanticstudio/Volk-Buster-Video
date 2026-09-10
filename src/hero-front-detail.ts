@@ -33,7 +33,7 @@
 // that file sits at its 6000-line budget (tools/check-file-budget.mjs), and per
 // CLAUDE.md hitting the ceiling means extracting, not raising it.
 import * as THREE from 'three';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import {
   COVER_WIDTH,
   COVER_HEIGHT,

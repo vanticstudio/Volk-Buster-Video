@@ -8,7 +8,7 @@
 // jellyfin_token / etc. to localStorage): two additional optional fields,
 // `jellyseerr_url` and `jellyseerr_apikey`.
 import { invoke } from '@tauri-apps/api/core';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { isDemoMode } from './demo-mode';
 import { resolveSeerrConfig as resolveSeerr, type SeerrConfig } from './seerr-config';
 import { operatorDefault } from './operator-defaults';

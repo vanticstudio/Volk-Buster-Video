@@ -1,4 +1,4 @@
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 import { recommend } from './clerk-recommend';
 import { keyboardOwnedByControl } from './text-entry-focus';
 import { brandString } from './brand-pack';

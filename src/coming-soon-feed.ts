@@ -34,7 +34,7 @@
 // tests/coming-soon-feed.test.ts run it under bare `node --test` type
 // stripping (same rule promo-campaigns.ts and store-layout.ts follow). The
 // persisted requested-id set is passed IN rather than read here.
-import type { JellyfinLibrary, Movie } from './jellyfin';
+import type { JellyfinLibrary, Movie } from './providers/media-source-provider';
 
 /** Why a title is on the board — kept so a consumer can label honestly. */
 export type ComingSoonSource = 'ordered' | 'unreleased';

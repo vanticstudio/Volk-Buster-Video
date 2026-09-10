@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Movie } from '../jellyfin';
+import { Movie } from '../providers/media-source-provider';
 import { FixturePlacement, BOX_SPACING, FLOOR_FIXTURE_MAX_Z } from '../store-layout';
 import { FixtureContext, SlottedFixture, FixtureSlot } from '../fixtures';
 import { Footprint, FLOOR_DISPLAY_CLEARANCE } from '../layout-validator';

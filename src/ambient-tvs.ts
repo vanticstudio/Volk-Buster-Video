@@ -12,7 +12,7 @@ async function loadHls() {
   return HlsMod;
 }
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { CENTER_WALKWAY } from './store-layout';
 import { FixtureContext, StoreFixture } from './fixtures';
 import { loadProp } from './props';

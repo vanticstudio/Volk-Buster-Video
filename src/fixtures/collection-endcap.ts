@@ -72,7 +72,7 @@
 // `npm run shot -- --state endcapbrowse --title collection` for the browse
 // flow-through onto one.
 import * as THREE from 'three';
-import { Movie } from '../jellyfin';
+import { Movie } from '../providers/media-source-provider';
 import { FixturePlacement, shelfTitleCompare } from '../store-layout';
 import { FixtureContext } from '../fixtures';
 import { markSignMesh } from '../sign-builders';

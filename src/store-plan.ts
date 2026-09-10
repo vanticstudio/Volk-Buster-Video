@@ -6,7 +6,7 @@
 // Swap or subclass this to lay the store out completely differently — nothing
 // in here touches THREE scene objects except the Vector3 rotation helper.
 import type * as THREE from 'three';
-import type { Movie, JellyfinLibrary } from './jellyfin.ts';
+import type { Movie, JellyfinLibrary } from './providers/media-source-provider';
 import {
   LIBRARY_X_SPACING, FIELD_Z_FRONT, CENTER_WALKWAY, AISLE_ANGLE, HERRINGBONE_AISLE_ANGLE, BOX_SPACING,
   MAX_SHELF_COLS, UNIT_CAPACITY, MAX_RUN_UNITS, RUN_BREAK_GAP, UNIT_SECTIONS,

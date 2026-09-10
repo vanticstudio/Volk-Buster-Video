@@ -2,7 +2,7 @@
 // Stocks the demo games aisle with authentic retro titles and platform-specific
 // box art when no Romm server is configured, mirroring streaming-snapshot.ts.
 import snapshotData from './data/games-snapshot.json' with { type: 'json' };
-import type { Movie } from './jellyfin.ts';
+import type { Movie } from './providers/media-source-provider';
 import { isPlatformEnabled, isGamesOnly } from './game-platforms.ts';
 import { generateGameCartonArt } from './game-carton-art.ts';
 

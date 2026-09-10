@@ -3,7 +3,7 @@
 // and the extracted scene modules (store-stock.ts, ...). Single-threaded
 // use only — every consumer fully writes a temp before reading it back.
 import * as THREE from 'three';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { SECTION_COLS, STORE_CENTER_X } from './store-layout';
 import { perfSlot } from './perf-trace';
 

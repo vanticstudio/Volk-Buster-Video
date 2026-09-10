@@ -17,7 +17,7 @@
 // jellyseerr.ts (type-only), so it runs under `node --test` with type
 // stripping. Unit tests: npm run test:picks. Network + cache orchestration
 // lives in staff-picks-loader.ts.
-import type { JellyfinLibrary, Movie } from './jellyfin';
+import type { JellyfinLibrary, Movie } from './providers/media-source-provider';
 import type { RecommendationSeed } from './jellyseerr';
 
 /** Watched titles the aggregation runs over, most-recently-watched first. */

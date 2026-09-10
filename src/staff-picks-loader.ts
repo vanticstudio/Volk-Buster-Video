@@ -3,7 +3,7 @@
 // synthetic stand-in) -> aggregate -> split against the shelf -> enrich the
 // winners -> cache. Separated from the engine so the pure math stays
 // node-testable (this file imports jellyseerr.ts, which pulls the Tauri API).
-import type { JellyfinLibrary, Movie } from './jellyfin';
+import type { JellyfinLibrary, Movie } from './providers/media-source-provider';
 import {
   RecommendationSeed,
   fetchMovieDetailFields,

@@ -2,7 +2,7 @@
 // Displays sections based on the selected platform list, showing the top 20
 // games for each platform.
 import * as THREE from 'three';
-import { Movie } from '../jellyfin';
+import { Movie } from '../providers/media-source-provider';
 import { FixturePlacement, shelfTitleCompare, BOX_SPACING, UNIT_DEPTH, UNIT_TOP_DEPTH, LEAN_ANGLE } from '../store-layout';
 import { FixtureContext, SlottedFixture, FixtureSlot } from '../fixtures';
 import { Footprint, localZOffset } from '../layout-validator';

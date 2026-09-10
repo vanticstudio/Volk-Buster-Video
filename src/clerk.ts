@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ClerkInteraction, type ClerkInteractionHooks, type ClerkSuggestion } from './clerk-interaction';
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 import {
   ANIM_DEF, ANIM_COL, ATLAS_COLS, ATLAS_ROWS, CELL_W, CELL_H,
   buildClerkAtlasCanvas, type AnimKey,

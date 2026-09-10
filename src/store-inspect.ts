@@ -6,7 +6,7 @@
 // first parameter and reads/writes scene state exactly as the original
 // methods did.
 import * as THREE from 'three';
-import { Movie, Episode } from './jellyfin';
+import { Movie, Episode } from './providers/media-source-provider';
 import { requestHeroFrontDetail } from './hero-front-detail';
 import { posterQueue, CASE_MEDIUM, leftmostColorCache, posterPixelCache, getCaseGeometry, getRentalCaseGeometry, createHeroJellyfinMaterials, createHeroRentalMaterials, applyGameCaseArt, backCoverRegions, getSeriesBoxsetGeometry, createHeroSeriesBoxsetMaterials, drawSeriesBrandPanel, drawSeriesEpisodeBackCover, drawSeriesSeasonPanel, gameCaseDims, gameRentalDims } from './video-case';
 import { syncJewelDressing } from './jewel-case';

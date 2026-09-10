@@ -15,7 +15,7 @@
 //
 // Pure functions over plain data, no THREE import, so it runs under
 // `node --test` with type stripping. Unit tests: npm run test:why
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 
 /** Reason rungs, strongest first — see explainRecommendation's cascade. */
 export type WhyKind = 'collection' | 'director' | 'actor' | 'alsoLiked' | 'studio' | 'genre';

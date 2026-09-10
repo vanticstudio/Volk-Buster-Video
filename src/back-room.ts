@@ -26,7 +26,7 @@
 // with the sized primitive stand-ins and upgrades automatically when the real
 // GLBs land in public/models/.
 import * as THREE from 'three';
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 import {
   CASE_MEDIUM,
   getRentalCaseGeometry,

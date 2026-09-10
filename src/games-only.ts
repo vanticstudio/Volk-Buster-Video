@@ -21,7 +21,7 @@
 // mode (main.ts hands the scene an empty `gameMovies`) — every one of its cases
 // is already out on the floor, and a second copy of the catalog would double
 // the poster budget to show the same games twice.
-import { Movie, JellyfinLibrary } from './jellyfin';
+import { Movie, JellyfinLibrary } from './providers/media-source-provider';
 import { getSetting } from './settings';
 
 /**

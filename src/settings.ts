@@ -49,7 +49,7 @@ import { activeProviderKind } from './providers/provider-registry';
 import { topStudiosInLibrary } from './promo-campaigns';
 import { ALL_DEFAULT_STREAMING_SERVICES_CSV } from './streaming-catalog';
 import type { StoreScene } from './three-scene';
-import type { JellyfinLibrary } from './jellyfin';
+import type { JellyfinLibrary } from './providers/media-source-provider';
 
 export type SettingKind = 'toggle' | 'cycle' | 'text' | 'secret';
 export type ApplyMode = 'live' | 'rebuild-scene' | 'reload';

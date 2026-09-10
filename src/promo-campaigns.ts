@@ -2,7 +2,7 @@
 // dependency on jellyfin.ts, and keeping the import erasable is what lets
 // tests/promo-campaigns.test.ts run it under bare `node --test` type stripping
 // (same rule store-layout.ts follows).
-import type { Movie, JellyfinLibrary } from './jellyfin';
+import type { Movie, JellyfinLibrary } from './providers/media-source-provider';
 
 // ─── Promo campaigns: what a four-sided floor stand actually SELLS ───────────
 //

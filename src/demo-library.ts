@@ -1,7 +1,7 @@
 // Synthetic placeholder catalog shared by the visual-verification harness
 // (harness.html) and the public demo build (src/demo-mode.ts), so the 3D
 // store can be stocked and exercised without a Jellyfin/Romm server.
-import { Episode, JellyfinLibrary, Movie } from './jellyfin';
+import { Episode, JellyfinLibrary, Movie } from './providers/media-source-provider';
 import { assetUrl } from './asset-url';
 import { getDismissedTitleIds } from './jellyseerr';
 import { fetchGamesFromSnapshot } from './games-snapshot.ts';

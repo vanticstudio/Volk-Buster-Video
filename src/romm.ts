@@ -18,7 +18,7 @@
 //                    rom's server-relative path so {path} resolves on this host.
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { operatorDefault } from './operator-defaults';
 import { isGamesOnly } from './games-only';
 import { isPlatformEnabled } from './game-platforms';

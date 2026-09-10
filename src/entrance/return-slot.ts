@@ -26,7 +26,7 @@
 // case is swallowed. Event-time work allocates freely; update() is
 // allocation-free (scratch objects only).
 import * as THREE from 'three';
-import type { Movie } from '../jellyfin';
+import type { Movie } from '../providers/media-source-provider';
 import { FixtureContext } from '../fixtures';
 import { getActiveTheme } from '../themes';
 import { createShelfTextures } from '../canvas-textures';

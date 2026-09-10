@@ -8,7 +8,7 @@
 // first parameter and reads/writes scene state exactly as the original
 // methods did — behaviour-preserving move, not a redesign.
 import * as THREE from 'three';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { assetUrl } from './asset-url';
 import { posterQueue, loadDecorPosterTexture } from './video-case';
 import { bakeFloorAO, makeWallContactAO } from './lightmap-bake';

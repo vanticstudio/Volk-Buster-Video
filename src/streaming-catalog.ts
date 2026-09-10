@@ -12,7 +12,7 @@
 // network round trip (jellyseerr.ts's private request transport, which does
 // carry Tauri/DOM imports) lives in jellyseerr.ts's fetchStreamingMovies,
 // which imports the helpers below rather than the other way around.
-import type { Movie, JellyfinLibrary } from './jellyfin';
+import type { Movie, JellyfinLibrary } from './providers/media-source-provider';
 
 /** One default streaming service: how to find it in Jellyseerr's watch-provider
  *  list, and how to link a title on it. */

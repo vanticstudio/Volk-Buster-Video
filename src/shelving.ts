@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { ShelfModelBatch, type ShelfPart } from './shelf-model';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { JellyfinLibrary } from './jellyfin';
+import { JellyfinLibrary } from './providers/media-source-provider';
 import {
   FIELD_Z_FRONT, AISLE_SHELF_HEIGHTS, BOX_SPACING, SECTION_COLS,
   UNIT_SECTIONS,

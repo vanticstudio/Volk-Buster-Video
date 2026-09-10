@@ -13,7 +13,7 @@
 // fixture path assumes 3 columns (see StoreScene.updateColsCount), so the
 // whole rack is reachable without touching the nav code.
 import * as THREE from 'three';
-import { Movie } from '../jellyfin';
+import { Movie } from '../providers/media-source-provider';
 import { FixturePlacement, BOX_SPACING, UNIT_DEPTH, unitDepthAtHeight } from '../store-layout';
 
 import { FixtureContext, SlottedFixture, FixtureSlot } from '../fixtures';

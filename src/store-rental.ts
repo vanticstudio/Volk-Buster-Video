@@ -4,7 +4,7 @@
 // back-room browsing/inspect, the couch TV video hookup, and the harness
 // debug entries. Every function takes the StoreScene as its first parameter
 // and reads/writes scene state exactly as the original methods did.
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 import { findTitleByCarryId } from './media-sources';
 import { BACK_WALL_UNIT_IDX } from './store-layout';
 import { retailAudio } from './audio';

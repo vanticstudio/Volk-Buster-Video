@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Movie, JellyfinLibrary, Episode } from './jellyfin';
+import { Movie, JellyfinLibrary, Episode } from './providers/media-source-provider';
 import { assetUrl } from './asset-url';
 import {
   clearVideoCaseCache,

@@ -23,7 +23,7 @@
 // dressed at a time in the store (the hero pair), so the cost is fixed.
 import * as THREE from 'three';
 import { makeGlassReflectionMaterial } from './glass-reflection';
-import { Movie } from './jellyfin';
+import { Movie } from './providers/media-source-provider';
 
 // Platforms whose retail case was a jewel case (clear lid over a paper
 // inlay). The keep-case consoles (PS2/GC/Xbox-era and the handheld cases)

@@ -22,7 +22,7 @@
 // the world.
 import * as THREE from 'three';
 import { carryIdFor } from './media-sources';
-import type { Movie } from './jellyfin';
+import type { Movie } from './providers/media-source-provider';
 import {
   CASE_MEDIUM,
   CASE_DEPTH,

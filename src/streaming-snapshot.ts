@@ -25,7 +25,7 @@ import {
   type RawDiscoverItem,
   resolveEnabledServices, ingestStreamingResults, STREAMING_CAP_PER_SERVICE,
 } from './streaming-catalog.ts';
-import type { Movie } from './jellyfin.ts';
+import type { Movie } from './providers/media-source-provider';
 
 interface SnapshotTitle {
   tmdbId: number;
