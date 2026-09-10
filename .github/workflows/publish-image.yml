@@ -2,7 +2,7 @@
 # the store without cloning or building anything:
 #
 #   docker run -d --name halcyon --network host --restart unless-stopped \
-#     ghcr.io/halcyon-video/halcyon-video
+#     ghcr.io/<your-github-user>/volkbuster-video
 #
 # Runs on release tags (vX.Y.Z) and by hand (workflow_dispatch).
 #

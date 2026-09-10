@@ -19,10 +19,16 @@
 FROM node:22-alpine
 WORKDIR /app
 
-# Chromium renders Remote Play private instances server-side; coturn relays
-# WebRTC for viewers the store can't reach directly (VPN / hostile NAT).
-# This layer is ~800MB — most of the image — and it's what makes
-# remote.html work on a headless server.
+# Chromium and coturn, for server-side rendering: Chromium is what a per-user
+# rendering instance runs in, coturn relays WebRTC to viewers the host cannot
+# reach directly.
+#
+# THIS LAYER IS ~800MB, most of the image, and nothing uses it yet. The gate
+# currently proxies one shared store rendered in each viewer's own browser
+# (server/app-proxy.ts); instances are the next phase. Kept because that phase
+# needs exactly this, and because rebuilding it later is the same 800MB either
+# way — but if image size matters more than a future phase on your NAS, this
+# RUN line and the PUPPETEER_* env below are what to delete.
 #
 # Those private instances render the real 3D store, so they need a GPU mapped
 # into the container (`--device /dev/dri`, or the devices: block in
@@ -45,11 +51,15 @@ RUN npm ci && npm cache clean --force
 
 COPY . .
 
-# Optional autologin baked into the bundle at build time (in-app login is the
-# normal flow). NOTE: values land in plain text in the served JS and the image
-# layers — only bake credentials into an image that never leaves your network.
-#   docker build -t volkbuster-video \
-
+# NO BUILD-TIME CREDENTIALS. Upstream took VITE_JELLYFIN_* build args here and
+# admitted in this very comment that they "land in plain text in the served JS
+# and the image layers". Vite inlines every VITE_* value into the bundle, so
+# they were published strings, not secrets. The code that read them is gone and
+# the args go with it — leaving them would invite the mistake back.
+#
+# Credentials reach this app two ways now: a viewer signs in with Plex through
+# the front door, or the operator supplies them server-side via HALCYON_* env,
+# which is attached per request and never enters the bundle.
 RUN npm run build
 
 # The front door only. The store app's port is deliberately not exposed.
