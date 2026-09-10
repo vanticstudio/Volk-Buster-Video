@@ -57,6 +57,37 @@ small multi-user service, and making it ours.
 
 - **One public port, 3355.** The store app moved to loopback behind it.
 
+- **A management console on port 3366.** Owner-only, and never published — 3355
+  is the port that goes through the Cloudflare tunnel, so keeping the console on
+  one that is simply not published means a routing mistake cannot expose it. It
+  still authenticates with the same Plex gate plus an owner check, because a LAN
+  is not a trust boundary.
+
+  It sets which Plex libraries the store stocks, whether the games department
+  exists, and can sign every viewer out at once. Policy is expressed as the
+  app's OWN settings keys, injected into the page on each load, so the store
+  applies it without needing to know a front door exists.
+
+  **This is merchandising, not access control.** Hiding a library stops the
+  store stocking it; it does not stop someone asking Plex for it directly with
+  the token their own browser holds. Plex's sharing is the boundary.
+
+- **Viewer mode.** Served through the front door, both system menus drop to
+  CONTROLS & HELP, SIGN OUT and RETURN TO STORE. Before this every viewer on a
+  tunnelled port was offered SUSPEND SYSTEM — which sleeps the owner's NAS —
+  and CHANGE SERVER / LOG OUT, which repoints the store's Plex connection for
+  whoever loads it next.
+
+- **A link preview.** Pasting the store's URL into a chat now unfurls a card
+  instead of a bare link. It lives on the SIGN-IN page, because that is where an
+  unauthenticated crawler lands; a card inside the store would sit behind the
+  gate the crawler cannot pass. The image is rendered from the brand mark rather
+  than screenshotted, and the absolute URL it needs is built from the request's
+  Host, allowlisted before use.
+
+  `noindex` stays: a card in a chat window is a person being invited, a search
+  result is a stranger finding the login page for someone's private library.
+
 
 - **A front door service (`server/`)** — the only process this deployment
   exposes. Plex PIN sign-in, an access gate that asks plex.tv whether an account
@@ -125,6 +156,25 @@ small multi-user service, and making it ours.
 
 ### Fixed
 
+- **The store framed itself for a 16:9 screen and nothing else.** three.js's
+  camera fov is the VERTICAL angle, and a fixed 60° is 91.5° horizontally at
+  16:9 but only 29.9° on a portrait phone — a third of the view every camera
+  position was composed against, so a phone visitor was looking at the shop
+  through a mail slot. The horizontal field is now held constant as the aspect
+  narrows (clamped at 80° vertical, since a store full of straight verticals is
+  exactly the scene a fisheye ruins), putting a phone at 42.4°. Nothing changes
+  at 16:9 or wider.
+
+- **A phone was being asked to render a 2x buffer.** The pixel budget solves for
+  a multiplier against ~3.7M pixels, and a phone's viewport is ~330k CSS pixels,
+  so the budget never binds there — the tier's own pixel-ratio cap did, and it
+  was written for desktops. Handhelds now cap at 1.5.
+
+- **Three card overlays ran off the side of a phone.** `.genre-card`,
+  `.version-card` and `.feedback-pin-card` had fixed pixel widths with no cap;
+  the other six already had one. `.version-card` is the 4K/1080p picker, which
+  is viewer-facing.
+
 - **Puppeteer is pinned to `~25.2.0`, patch-only, deliberately.** Updating it to
   25.10 made it demand a Chrome build that will not download in this
   environment, which broke `tools/gen-cover-thumbs.mjs` — a caret range would
@@ -150,5 +200,16 @@ small multi-user service, and making it ours.
   delivery, the collection registries, HLS helpers) that nine files still import
   by value. Deleting it needs those extracted first.
 
-- The store is not yet served behind the gate. Signing in works; rendering
-  instances are the next phase.
+- The mobile framing is unverified on an actual phone. The angles are
+  unit-tested at every aspect ratio and the build is clean, but nobody has
+  looked at the result on glass. Whether an 80° vertical fov feels right
+  standing in the aisle is not a question numbers answer; `MAX_FOV` in
+  `src/viewport.ts` is the single knob if it reads too wide.
+
+- The card overlays are capped to the viewport width but their internal
+  layouts have not been checked at 414px, and the app shell does not declare
+  `viewport-fit=cover`, so a notch may sit over the HUD. See
+  [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+- Per-viewer rendering instances are still the next phase. What ships today
+  proxies ONE SHARED store, rendered in each viewer's own browser.
