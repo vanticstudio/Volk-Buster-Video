@@ -1,18 +1,20 @@
 # VolkBuster Video in a container.
 #
-#   docker compose up -d          # or:
-#   docker build -t volkbuster-video . && docker run --init -p 1420:1420 volkbuster-video
+#   docker compose up -d
 #
-# Serves http://<host>:1420 — first boot shows the backend picker (Jellyfin
-# or Plex login; append ?demo=1 for the synthetic demo library, no server
-# needed). This runs the
-# project's documented server runtime (`npm run serve`: vite preview plus the
-# middleware in vite.config.ts), so the Jellyseerr/Romm integration proxy,
-# F8 feedback pins and the whole Remote Play stack work — including private
-# instances: open /remote.html on a phone or set-top box and the CONTAINER
-# renders the store and streams it over WebRTC (use host networking for
-# that; see docker-compose.yml). The one host-side feature that stays off
-# is local mpv playback, which only ever applies on the HTPC itself.
+# TWO PROCESSES, ONE PUBLIC PORT (see deploy/docker-entrypoint.sh):
+#
+#   store app   vite preview on 127.0.0.1:1420 — never published
+#   front door  Plex gate + reverse proxy on 0.0.0.0:3355 — the only way in
+#
+# The store app has no authentication of any kind, so reaching it means reaching
+# the whole library. Publishing only the front door is what makes the Plex gate
+# mean anything. Do not map APP_PORT out of the container.
+#
+# Requires PLEX_MACHINE_ID, SESSION_SECRET and TOKEN_ENCRYPTION_KEY; the
+# entrypoint refuses to start without them. See server/.env.example.
+#
+# Local mpv playback is the one host-side feature that stays off in a container.
 
 FROM node:22-alpine
 WORKDIR /app
@@ -47,18 +49,18 @@ COPY . .
 # normal flow). NOTE: values land in plain text in the served JS and the image
 # layers — only bake credentials into an image that never leaves your network.
 #   docker build -t volkbuster-video \
-#     --build-arg VITE_JELLYFIN_URL=http://jellyfin:8096 \
-#     --build-arg VITE_JELLYFIN_USERNAME=... \
-#     --build-arg VITE_JELLYFIN_PASSWORD=... .
-ARG VITE_JELLYFIN_URL
-ARG VITE_JELLYFIN_USERNAME
-ARG VITE_JELLYFIN_PASSWORD
 
 RUN npm run build
 
-EXPOSE 1420
+# The front door only. The store app's port is deliberately not exposed.
+EXPOSE 3355
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD wget -qO /dev/null http://127.0.0.1:1420/ || exit 1
+# Probes the PUBLIC port, so the check fails if the gate is down even when the
+# store behind it is fine. A container answering health checks while serving
+# 502s is worse than one that restarts.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s \
+  CMD wget -qO /dev/null http://127.0.0.1:3355/healthz || exit 1
 
-CMD ["npm", "run", "serve"]
+COPY deploy/docker-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+CMD ["/usr/local/bin/entrypoint.sh"]

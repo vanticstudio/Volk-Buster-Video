@@ -34,6 +34,7 @@ import { grantsAccessTo, isOwnerOf } from './plex-gate.ts';
 import { createPin, claimPin, fetchAccount, fetchResources, type PlexClientIdentity } from './plex-client.ts';
 import { assertWritable } from './owner-keys.ts';
 import { signInPage, signedInPage } from './signin-page.ts';
+import { proxyToApp } from './app-proxy.ts';
 
 const COOKIE = 'hv_session';
 
@@ -350,9 +351,9 @@ export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: (
         return json(res, 403, { error: 'your access to this Plex library was removed' });
       }
 
-      // The landing page. Phase 2 replaces this with the instance stream; until
-      // then it is deliberately explicit that there is nothing behind it yet.
-      if (path === '/' && req.method === 'GET') {
+      // Owner-only status page, reachable deliberately rather than by landing
+      // on it. Says who you are and whether the store is up.
+      if (path === '/whoami' && req.method === 'GET') {
         const stored = db.getSession(payload.sid);
         return html(res, 200, signedInPage(stored?.uid ?? payload.uid, payload.owner));
       }
@@ -385,7 +386,17 @@ export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: (
         return json(res, 200, { ok: true });
       }
 
-      return json(res, 404, { error: 'not found' });
+      // Everything else is the store itself, proxied from the app process on
+      // loopback. Reaching this line means the request already carried a valid,
+      // re-validated session — which is the whole point: the store is not
+      // served on a port of its own, so there is no way to reach it that
+      // bypasses the gate.
+      //
+      // NOTE this proxies ONE SHARED store to every viewer. Per-user rendering
+      // instances (Phase 2) replace it; until then everyone drives the same
+      // camera and rendering happens in the viewer's own browser.
+      proxyToApp(req, res, cfg.appOrigin);
+      return;
     } catch (err) {
       // Never leak an internal error to a public caller: the message could name
       // a path, a query or a token. Log it, answer with nothing.

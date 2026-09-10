@@ -290,19 +290,20 @@ test('the self-hosted font is served', async () => {
   assert.ok(Number(res.headers.get('content-length')) > 10_000, 'a real font file');
 });
 
-test('a signed-in viewer gets the landing page, and it is honest', async () => {
+test('a signed-in viewer gets the status page, and it is honest', async () => {
+  // Lives at /whoami rather than /, because / is now the store itself.
   const { cookie } = await signIn();
-  const body = await (await realFetch(`${base}/`, { headers: { cookie: cookie! } })).text();
+  const body = await (await realFetch(`${base}/whoami`, { headers: { cookie: cookie! } })).text();
   assert.match(body, /You&#39;re in|You're in/);
   // It must NOT imply a store is loading — that would send a tester hunting a
   // fault that does not exist.
   assert.match(body, /not wired up to it yet/);
 });
 
-test('the owner landing page says so', async () => {
+test('the owner status page says so', async () => {
   stubResources = [{ clientIdentifier: MACHINE, provides: 'server', owned: true, home: false }];
   const { cookie } = await signIn();
-  const body = await (await realFetch(`${base}/`, { headers: { cookie: cookie! } })).text();
+  const body = await (await realFetch(`${base}/whoami`, { headers: { cookie: cookie! } })).text();
   assert.match(body, /owner, full admin/);
 });
 
@@ -340,4 +341,54 @@ test('one caller being limited does not lock out everybody else', async () => {
     method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.8' },
   });
   assert.equal(other.status, 200, 'a different caller is unaffected');
+});
+
+// ─── The store is only reachable through the gate ───────────────────────────
+//
+// The front door proxies the store app for authenticated requests. These pin
+// the property that makes that safe: an unauthenticated request must never be
+// proxied. If it were, the store — which has no authentication of its own —
+// would be served to anyone who found the URL.
+
+test('an unauthenticated request for a store asset is NOT proxied', async () => {
+  // The failure this catches: a proxy placed before the session check, so
+  // /assets/main.js sails through and the whole library is public.
+  for (const path of ['/assets/main-abc123.js', '/textures/carpet.jpg', '/index.html', '/models/vcr.glb']) {
+    const res = await realFetch(`${base}${path}`);
+    assert.equal(res.status, 200, `${path} should render the gate, not proxy`);
+    const body = await res.text();
+    assert.match(body, /Members only/, `${path} must return the sign-in page`);
+  }
+});
+
+test('a forged cookie does not get you past the proxy either', async () => {
+  const forged = 'hv_session=' + Buffer.from('{"sid":"x","uid":"x","owner":true,"exp":9999999999999}').toString('base64url') + '.nope';
+  const res = await realFetch(`${base}/assets/main.js`, { headers: { cookie: forged } });
+  assert.match(await res.text(), /Members only/);
+});
+
+test('an authenticated request IS proxied to the store', async () => {
+  // With no store running on appOrigin the proxy cannot connect, and the honest
+  // answer is 502 — which is itself the proof that the request got past the
+  // gate and was handed onward rather than being answered by the front door.
+  const { cookie } = await signIn();
+  const res = await realFetch(`${base}/assets/main.js`, { headers: { cookie: cookie! } });
+  assert.equal(res.status, 502, 'should attempt the upstream, not serve the gate');
+  const body = await res.text();
+  assert.match(body, /store is not running/i);
+  assert.doesNotMatch(body, /Members only/);
+});
+
+test('a proxy failure never leaks the internal address', async () => {
+  // The 502 body reaches a viewer. It must not tell them where the ungated
+  // store actually lives.
+  const { cookie } = await signIn();
+  const body = await (await realFetch(`${base}/assets/main.js`, { headers: { cookie: cookie! } })).text();
+  assert.doesNotMatch(body, /127\.0\.0\.1|localhost|1420/);
+});
+
+test('the status page is still served by the front door, not proxied', async () => {
+  const { cookie } = await signIn();
+  const body = await (await realFetch(`${base}/whoami`, { headers: { cookie: cookie! } })).text();
+  assert.match(body, /You&#39;re in|You're in/);
 });

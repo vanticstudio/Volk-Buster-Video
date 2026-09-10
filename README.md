@@ -67,13 +67,32 @@ served behind it — that's the instance pool.
 
 Needs **Node 22.6+** (the test runner uses type stripping).
 
+### Docker (a NAS, or anything else)
+
+```bash
+git clone <your-repo> && cd volkbuster-video
+cp server/.env.example .env             # fill in the three required values
+docker compose up -d
+open http://<host>:3355
+```
+
+### From source
+
 ```bash
 npm ci
 cp server/.env.example server/.env      # fill in the three required values
 npm run build
-npm run server
+npm run serve &                         # the store, on loopback
+npm run server                          # the front door, on :3355
 ```
 
+Two processes, one public port. The store app has no authentication of its own,
+so it binds to loopback and is reachable only through the front door, which
+checks a Plex session first and then proxies. **Never publish `APP_PORT`** —
+doing so serves the whole library to anyone who finds it.
+
+Generate the two secrets with
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 `PLEX_MACHINE_ID` is your server's `clientIdentifier`, from
 `https://plex.tv/api/v2/resources?X-Plex-Token=YOUR_TOKEN`. The front door
 refuses to start without it, `SESSION_SECRET` and `TOKEN_ENCRYPTION_KEY` —
@@ -93,9 +112,9 @@ loopback, which makes upstream's dev middleware (`/dev-proxy`, `/__play`,
 protect a port you never published.
 
 ```
-Internet ──▶ cloudflared ──▶ front door :8080     ← the only public surface
-              127.0.0.1 ───┬─ vite preview        ← never exposed
-                           └─ rendering instances
+Internet ──▶ cloudflared ──▶ front door :3355     ← the only public surface
+              127.0.0.1 ───┬─ store app :1420     ← never exposed
+                           └─ rendering instances (later)
 ```
 
 ## Building on it

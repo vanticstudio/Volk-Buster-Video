@@ -1,79 +1,81 @@
+# VolkBuster Video — a Plex-gated 1990s video store.
+#
+#   cp server/.env.example .env     # fill in the three required values
+#   docker compose up -d
+#   open http://<nas-ip>:3355
+#
+# ONE PUBLIC PORT. The store app runs on loopback INSIDE the container and is
+# reachable only through the front door, which checks a Plex session first.
+# That is the whole security model: the store has no authentication of its own,
+# so publishing its port would serve the entire library to anyone who found it.
+# Do not add a mapping for APP_PORT.
+
 services:
   volkbuster:
     build: .
-    # Prebuilt image instead of building from the clone (published on
-    # releases — see .github/workflows/publish-image.yml):
-    # image: ghcr.io/volkbuster-video/volkbuster-video
+    # Or pull a published image instead of building from the clone:
+    #   image: ghcr.io/<your-github-user>/volkbuster-video:latest
+    container_name: volkbuster
     restart: unless-stopped
     init: true
 
-    # Host networking is what makes Remote Play work: WebRTC has to offer
-    # the machine's real LAN address, and behind the default docker bridge
-    # the container can only offer 172.x candidates no phone or set-top box
-    # can reach. The server takes :1420 (plus :3478/udp and 49200-49260/udp
-    # when the TURN relay is in use).
-    network_mode: host
+    ports:
+      # host:container. Change the LEFT number to move it on your NAS; leave the
+      # right one alone unless you also change PORT below.
+      - "3355:3355"
 
-    # Browse-only alternative (no Remote Play streaming): delete
-    # network_mode above and publish the web port instead:
-    # ports:
-    #   - "1420:1420"
+    # Bridge networking on purpose, unlike upstream, which used host networking
+    # so Remote Play's WebRTC could offer the machine's real LAN address. That
+    # trade bought streaming at the cost of every port isolation the daemon
+    # provides — on a box that also holds the Plex library. Remote Play is not
+    # wired into the gate yet, so the isolation is worth more today. Revisit
+    # when per-user rendering instances land.
 
     environment:
-      REMOTE_PLAY_SEED: /data/remote-play-seed.json
-      # The server answers to localhost, raw IPs, and the names of the
-      # machine it runs on — but in a container that means the CONTAINER's
-      # hostname, not your host's. So reaching it by a DNS name (your NAS
-      # name, a reverse proxy, a custom domain) needs that name listed
-      # here: comma-separated, a leading dot (".example.com") matches
-      # subdomains, "all" disables the check. Refused requests explain
-      # this and echo back the name they were refused under.
-      # HALCYON_ALLOWED_HOSTS: volkbuster.example.com
+      # ── Required. The container refuses to start without these. ────────────
+      #
+      # Your Plex server's machine identifier. Everyone who can reach THIS
+      # server in Plex can enter the store; nobody else can. Find it at:
+      #   https://plex.tv/api/v2/resources?X-Plex-Token=YOUR_TOKEN
+      PLEX_MACHINE_ID: "${PLEX_MACHINE_ID:?set PLEX_MACHINE_ID in .env}"
+      # Signs session cookies. Anyone who learns it can mint a session as any
+      # user, including you. Generate with:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET in .env}"
+      # Encrypts viewers' Plex tokens at rest. Without it the database is a
+      # plaintext credential store for everyone you shared a library with.
+      TOKEN_ENCRYPTION_KEY: "${TOKEN_ENCRYPTION_KEY:?set TOKEN_ENCRYPTION_KEY in .env}"
 
-      # Hosting the store for other people? These wire Jellyseerr and RomM up
-      # for EVERY visitor, so a first-timer arrives in a stocked store without
-      # touching setup — and without being handed your API key. Read here, on
-      # the server, and never inlined into the bundle (that is what the VITE_*
-      # variables in .env.local do, and why they are the household path rather
-      # than the hosting one): visitors are told the ADDRESS, the credential is
-      # attached host-side by the built-in proxy, and only for the endpoints
-      # the store itself calls. HALCYON_SEERR_* / HALCYON_OVERSEERR_* work too.
-      # See README.md → "Running a store for other people".
-      # HALCYON_JELLYSEERR_URL: http://seerr.lan:5055
-      # HALCYON_JELLYSEERR_APIKEY: your_jellyseerr_api_key
-      # HALCYON_ROMM_URL: http://romm.lan:8080
-      # HALCYON_ROMM_APIKEY: username:password
+      # ── Optional ───────────────────────────────────────────────────────────
+      PORT: "3355"
+      APP_PORT: "1420"
+      DATABASE_PATH: "/data/store.db"
+      # How long before a signed-in viewer must authenticate again (30 days).
+      SESSION_TTL_MS: "2592000000"
+      # The revocation window: unshare a Plex library and that person loses
+      # access within this long, rather than whenever their session expires.
+      REVALIDATE_AFTER_MS: "86400000"
 
     volumes:
-      # The Remote Play "seed": log into the store from any browser once
-      # and flip Settings → Connection → Remote Play ON — that donates
-      # your media-server login (Jellyfin or Plex, minus any password) to
-      # the server, so every /remote.html visitor gets their own private
-      # instance of your real library. This volume keeps it across
-      # container rebuilds.
+      # Sessions, per-user store settings and encrypted Plex tokens. Back this
+      # up like a credential store, because that is what it is.
       - volkbuster-data:/data
-      # Brand drop-in customization (logo, pack): any files in public/user-assets
-      # on the host overlay onto the served app, so a logo change needs only a
-      # container restart, not a rebuild. See README.md → "Make it yours".
+      # Your brand: drop a logo.svg in here and restart. Bind-mounted rather
+      # than baked into the image, so rebranding needs no rebuild.
       - ./public/user-assets:/app/dist/user-assets
-      # Keep F8 feedback pins (in-app visual bug reports) on the host:
-      # - ./feedback:/app/feedback
 
-    # Hardware GL — REQUIRED for Remote Play "private instances" (the mode
-    # where the container itself renders a store per visitor). Those run the
-    # real 3D store in a headless Chromium, and a container with no GPU has no
-    # WebGL at all, so the store never builds and /remote.html can only report
-    # why. Uncomment on a Linux host with an Intel/AMD/NVIDIA render node; it
-    # also buys hardware video encode, which is what makes several
-    # simultaneous streams cheap.
-    #
-    # Docker Desktop on macOS and Windows cannot pass a GPU into its VM, so
-    # private instances are not available there — browse in a normal browser
-    # and use the SHARED MIRROR (Settings → Connection → Remote Play) to serve
-    # viewers from a machine that has a display. Everything else in the
-    # container (the store itself, the web UI, the seed) works regardless.
-    # devices:
-    #   - /dev/dri:/dev/dri
+    # Plex reachability: if Plex is another container on this host, add its
+    # network here. If Plex runs on the host itself, the container reaches it at
+    # the host's LAN IP (or host.docker.internal on Docker Desktop).
+
+    healthcheck:
+      # Probes the PUBLIC port, so the check fails if the gate is down even when
+      # the store behind it is fine.
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3355/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
 
 volumes:
   volkbuster-data:

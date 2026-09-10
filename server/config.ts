@@ -55,7 +55,9 @@ function num(name: string, fallback: number): number {
 
 export function loadConfig(): FrontDoorConfig {
   return {
-    port: num('PORT', 8080),
+    // 3355 is the ONE public port. The store app stays on loopback behind the
+    // proxy, so this is the only thing cloudflared or a router should ever see.
+    port: num('PORT', 3355),
     plexMachineId: required('PLEX_MACHINE_ID'),
     sessionSecret: required('SESSION_SECRET'),
     tokenKey: deriveKey(required('TOKEN_ENCRYPTION_KEY')),

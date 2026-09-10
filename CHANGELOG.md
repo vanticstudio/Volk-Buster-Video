@@ -47,6 +47,17 @@ small multi-user service, and making it ours.
 
 ### Added
 
+- **The store is now served behind the gate.** The front door reverse-proxies
+  the app for authenticated requests, so every byte of the store arrives through
+  a request that already carried a valid session. Before this the two processes
+  were disconnected: the only way to actually see the store was to expose the
+  app port directly, which is a media library on the open internet with no gate
+  at all. This proxies ONE SHARED store to every viewer and is not the per-user
+  instance design — it is a usable thing to run today, and instances replace it.
+
+- **One public port, 3355.** The store app moved to loopback behind it.
+
+
 - **A front door service (`server/`)** — the only process this deployment
   exposes. Plex PIN sign-in, an access gate that asks plex.tv whether an account
   can reach *this* server, HMAC-signed sessions, AES-256-GCM token storage at
