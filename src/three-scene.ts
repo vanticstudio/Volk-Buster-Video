@@ -1996,7 +1996,16 @@ export class StoreScene {
     // faster Subzero JIT too) and all shadowMap.needsUpdate requests below
     // become harmless no-ops.
     this.renderer.shadowMap.enabled = !softwareGL;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFShadowMap, not PCFSoftShadowMap. three r185 deprecated the soft variant
+    // and SILENTLY substitutes this one anyway — it only announced itself as a
+    // console warning, so the store's shadows had already changed without the
+    // code saying so. Naming the real behaviour beats carrying a constant that
+    // no longer means what it says.
+    //
+    // The softer taps are no loss here: the delivered frame is compressed video,
+    // and PCF's shadow-edge dither is precisely the high-frequency detail an
+    // H.264 encoder quantises away first.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // Prebaked lighting: don't re-render the sun's 4K shadow map every frame. The scene
     // is static apart from the (non-shadow-casting) DVD cases and the occasional end-cap
     // transition, so we render shadows on demand via shadowMap.needsUpdate (driven by

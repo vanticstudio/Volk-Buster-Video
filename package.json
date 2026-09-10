@@ -39,12 +39,12 @@
     "@tauri-apps/plugin-opener": "^2",
     "hls.js": "^1.6.16",
     "n8ao": "^2.0.0",
-    "three": "^0.184.0"
+    "three": "^0.185.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.4.1",
-    "@types/three": "^0.184.1",
+    "@types/three": "^0.185.4",
     "puppeteer": "^25.2.0",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
