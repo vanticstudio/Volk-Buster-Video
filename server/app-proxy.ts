@@ -79,17 +79,38 @@ export function proxyToApp(
       port: target.port,
       method: req.method,
       path: target.pathname + target.search,
-      headers: { ...sanitise(req.headers), host: target.host },
+      headers: {
+        ...sanitise(req.headers),
+        host: target.host,
+        // When we are going to REWRITE the document, ask upstream not to
+        // compress it.
+        //
+        // vite preview gzips HTML whenever the client asks for it. Buffering
+        // those bytes and calling .toString('utf8') on them does not "fail" —
+        // it silently replaces every invalid sequence with U+FFFD, so the
+        // marker search finds nothing, the body is quietly destroyed, and it
+        // still goes out under a Content-Encoding: gzip header. The browser
+        // then tries to gunzip mush and renders nothing at all.
+        //
+        // Only document requests reach this branch (bootstrap is computed for
+        // Accept: text/html), so assets keep their compression.
+        ...(bootstrap ? { 'accept-encoding': 'identity' } : {}),
+      },
     },
     (upRes) => {
       const type = String(upRes.headers['content-type'] || '');
       const isHtml = type.includes('text/html');
+      // Belt and braces: if something upstream compressed anyway, pass it
+      // through untouched rather than corrupting it. Losing the injection means
+      // the viewer meets the store's own setup terminal — a worse experience,
+      // and a recoverable one. Corrupting the document is a blank page.
+      const encoded = Boolean(upRes.headers['content-encoding']);
 
       // Everything that is not the document streams straight through. The store
       // serves 100MB+ of textures, models and HDR skies, and buffering those to
       // rewrite them would put a per-request memory ceiling on how many viewers
       // this can serve at once. Only the HTML is small enough to hold.
-      if (!bootstrap || !isHtml) {
+      if (!bootstrap || !isHtml || encoded) {
         res.writeHead(upRes.statusCode || 502, sanitise(upRes.headers));
         upRes.pipe(res);
         return;
