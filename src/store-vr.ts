@@ -55,6 +55,7 @@ import * as THREE from 'three';
 import type { StoreScene } from './three-scene';
 import { resolveWalkRaycastHit, walkTakeSlot } from './store-walk';
 import { _checkoutStand } from './scene-shared';
+import { fovForAspect } from './viewport';
 
 const VR_RENDER_SCALE_KEY = 'bb_vr_render_scale';
 
@@ -404,8 +405,11 @@ function cleanupAfterSession(scene: StoreScene, state: VRState): void {
   scene.camera.position.set(x, VR_EYE_HEIGHT_FT, z);
   // WebXRManager overwrote fov/zoom from the eye projection for the
   // session's duration (see updateUserCamera in three's WebXRManager.js) —
-  // restore initThree()'s PerspectiveCamera(60, ...) baseline.
-  scene.camera.fov = 60;
+  // restore initThree()'s baseline. Derived from the aspect rather than the
+  // literal 60 it used to restore: on a phone that literal is the letterbox
+  // framing viewport.ts exists to undo, and headset-in-a-phone is exactly the
+  // case that lands here.
+  scene.camera.fov = fovForAspect(scene.camera.aspect);
   scene.camera.zoom = 1;
   scene.camera.rotation.order = 'YXZ';
   scene.yaw = state.rig.rotation.y;

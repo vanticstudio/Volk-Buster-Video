@@ -1800,6 +1800,7 @@ html, body {
 
 .genre-card {
   width: 500px;
+  max-width: 94vw; /* 500px runs off the side of any phone */
   background: #000a1c;
   border: 4px solid var(--bb-yellow);
   border-radius: 12px;
@@ -2141,6 +2142,9 @@ html, body {
 
 .version-card {
   width: 880px;
+  /* The quality picker is viewer-facing — it is what a visitor gets offered
+     when a title has a 4K and a 1080p copy — so it has to fit a phone. */
+  max-width: 94vw;
 }
 
 /* Candy Checkout Overlay (T19) — same small-CRT-panel family. */
@@ -2351,6 +2355,7 @@ html, body {
 
 .feedback-pin-card {
   width: 480px;
+  max-width: 94vw;
   background: var(--panel-bg);
   border: 2px solid var(--panel-border);
   border-radius: 14px;

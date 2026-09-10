@@ -15,32 +15,19 @@ started · `PARKED` deliberately deferred, with the reason.
 
 ## In flight
 
-### Social link previews — `BUILDING`
-
-Sharing the store's URL currently produces a bare link: no title card, no
-image. The tunnel URL is what gets pasted into a Discord DM or a group chat
-when the owner invites someone, so that preview is the store's front window
-for people who have not seen it yet.
-
-Needs Open Graph + Twitter card meta and a 1200×630 share image. The image has
-to be generated from the store's own brand assets rather than screenshotted, so
-it stays right when the brand pack changes.
-
 ### Mobile viewport — `BUILDING`
 
-The store renders at a fixed 60° **vertical** field of view. On a landscape
-desktop that frames an aisle; on a portrait phone (aspect ~0.46) the horizontal
-field collapses to a sliver and the visitor is looking at one shelf edge. This
-is the "renders 16:9 on mobile" problem.
+Framing and render budget are done (see below). What is left needs a real
+phone, not arithmetic:
 
-The fix is a horizontal-FOV lock: below a reference aspect, widen the vertical
-FOV so the horizontal field stays constant. A phone then sees the same *width*
-of store as a desktop, with more height, which is what a portrait screen is
-for.
-
-Touch input already exists (`src/store-touch.ts`, #126) — swipe to browse, an
-on-screen OK and BACK. What is missing is the framing, and a phone-sized
-render budget so the thing is smooth on the device rather than merely visible.
+- **The card overlays' internals.** Seven of the nine already capped at
+  90–95vw; `.genre-card`, `.version-card` and `.feedback-pin-card` did not and
+  now do. Capping stops them running off the side — it does not prove their
+  internal grids reflow well at 414px. Someone has to look.
+- **Safe areas.** The store is `viewport-fit=cover` on the sign-in page but the
+  app shell is not, so a notch or a home indicator may sit over the HUD.
+- **Portrait HUD placement.** The bottom band and the touch OK/BACK buttons
+  were placed against a landscape frame.
 
 ---
 
@@ -86,6 +73,35 @@ Owner-only second port: which libraries the store stocks, whether the games
 department exists, and a sign-everyone-out. Never published — 3355 is what goes
 through the Cloudflare tunnel, and a port that is not published cannot be
 exposed by a routing mistake.
+
+### Link previews — `DONE`
+
+Open Graph and Twitter cards on the SIGN-IN page, because that is where an
+unauthenticated crawler lands — a card inside the store would sit behind the
+gate the crawler cannot pass. The image is generated from the brand mark
+(`tools/gen-share-image.mjs`), and the absolute URL it needs is built from the
+request's Host, which is allowlisted before use.
+
+### Mobile framing and render budget — `DONE (maths), UNVERIFIED (on glass)`
+
+The store asked for a fixed 60° **vertical** fov, which is 91.5° horizontally
+at 16:9 and 29.9° on a portrait phone — a third of the view every camera
+position in `store-camera.ts` was composed against. `src/viewport.ts` holds the
+horizontal field constant as the aspect narrows, clamped at 80° vertical so it
+does not fisheye, which puts a phone at 42.4° instead of 29.9°.
+
+It also caps the renderer's pixel ratio at 1.5 on a handheld. The pixel BUDGET
+never binds on a phone — a phone's viewport is ~330k CSS pixels against a 3.7M
+budget — so the tier's own ratio cap was the only thing between a mobile GPU
+and a 2x buffer, and it was set for desktops.
+
+**Not yet seen on a phone.** The angles are unit-tested at every aspect
+(`tests/viewport.test.ts`) and the wiring typechecks and builds, but nobody has
+looked at the result on glass: the browser here would not come to the
+foreground, and a headless boot of 2174 textures under SwiftShader does not
+finish. What the numbers cannot tell you is whether 80° feels right in the
+aisle. If it reads too wide, `MAX_FOV` in `src/viewport.ts` is the one number
+to change, and the tests will tell you what it costs.
 
 ### Viewer mode on 3355 — `DONE`
 

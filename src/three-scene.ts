@@ -136,6 +136,7 @@ import { requestMovie } from './jellyseerr';
 import { displayHz, computeFpsCap, computeScalerTargetFps } from './display-hz';
 import { type LibraryIndex } from './recommend-why';
 import type { ClerkSuggestion } from './clerk-interaction';
+import { fovForAspect, pixelRatioCap } from './viewport';
 
 // Display-grade sweep knobs (gradeNum) now live in store-grade.ts alongside
 // the photo-grade pass itself; three-scene keeps only the exposure read.
@@ -1822,8 +1823,9 @@ export class StoreScene {
     // Volumetric haze removed: interior is lit by the drop-ceiling troffer lights instead.
     this.scene.fog = null;
 
-    // Create camera
-    this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+    // Create camera. The fov widens on narrow screens so a phone sees the same
+    // WIDTH of store a desktop does rather than a 30-degree slot — see viewport.ts.
+    this.camera = new THREE.PerspectiveCamera(fovForAspect(width / height), width / height, 0.1, 1000);
     this.camera.position.copy(this.currentCameraPos);
     this.camera.layers.enable(1);
     
@@ -1905,7 +1907,12 @@ export class StoreScene {
       this.outdoor.defaultBakeBounces = 1;
       this.outdoor.bakeResolution = 256; // 512 cube faces are real CPU seconds here
     }
-    const _prCap = effectiveQuality === 'low' ? 1 : effectiveQuality === 'medium' ? 1.5 : 2;
+    // A handheld caps lower whatever tier it measured: its viewport is ~330k CSS
+    // pixels, so the budget below never binds and this is all that stands between
+    // a mobile GPU and a 2x buffer (viewport.ts).
+    const _prCap = pixelRatioCap(effectiveQuality === 'low' ? 1
+      : effectiveQuality === 'medium' ? 1.5 : 2,
+      this.container.clientWidth, this.container.clientHeight);
     // SUPERSAMPLE, don't just cap. This was Math.min(devicePixelRatio, _prCap),
     // which on any ordinary desktop monitor (devicePixelRatio === 1) evaluates
     // to 1 — so the 'high' tier's cap of 2 never did anything, every frame was
@@ -5874,6 +5881,7 @@ export class StoreScene {
     const height = this.container.clientHeight || window.innerHeight || 720;
     
     this.camera.aspect = width / height;
+    this.camera.fov = fovForAspect(this.camera.aspect); // rotating a phone changes it
     this.camera.updateProjectionMatrix();
 
     // Same single sizing path the dynamic resolution scaler uses (issue #27);
