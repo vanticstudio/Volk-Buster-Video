@@ -1,7 +1,8 @@
 # VolkBuster Video
 
-**Your Plex library, rebuilt as a walkable 1990s video rental store — rendered
-on the server's GPU and streamed to whoever you've shared a library with.**
+**Your Plex library, rebuilt as a walkable 1990s video rental store.** Sign in
+with Plex; if the owner has shared a library with you, you're in — and you see
+your own access, nobody else's.
 
 Every film you own is a case on a shelf. Browse the aisles under warm
 fluorescents, pull something off the wall, flip it over and read the back of the
@@ -10,7 +11,62 @@ around it.
 
 It is not a menu with a skin on it. It's a store.
 
+## Install
+
+```bash
+docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -v volkbuster-data:/data ghcr.io/vanticstudio/volk-buster-video:latest
+```
+
+Then get your setup code:
+
+```bash
+docker logs volkbuster | grep -i "setup code"
+```
+
+Open `http://<your-host>:3355`, enter the code, sign in with Plex, pick your
+server. Done.
+
+**Nothing to clone, build, or configure.** No environment variables, no config
+file, no secrets to generate. The signing and encryption keys are created on
+first boot and kept beside the database; which Plex server the store gates on is
+chosen in the browser from a list of the ones you own.
+
+The setup code is asked for once. Reading it out of the log proves you control
+the host, which is what stops the first stranger who finds the address from
+claiming your store. It is cleared the moment setup finishes.
+
+<details>
+<summary>Docker Compose, and other ways in</summary>
+
+```bash
+curl -O https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/main/docker-compose.yml
+docker compose up -d
+```
+
+**ZimaOS / CasaOS:** Install Custom App → YAML tab → paste
+[`deploy/zimaos-compose.yml`](deploy/zimaos-compose.yml) → Install.
+
+**From source**, if you want to change it:
+
+```bash
+git clone https://github.com/vanticstudio/Volk-Buster-Video.git && cd Volk-Buster-Video
+npm ci && npm run build
+npm run serve &     # the store, on loopback
+npm run server      # the front door, on :3355
+```
+
+`server/.env.example` exists only for deployments that manage secrets
+externally. You do not need it.
+
+</details>
+
+> **One port, on purpose.** Only `3355` is published. The store itself runs on
+> loopback inside the container and has no authentication of its own — it is
+> reachable only through the front door, which checks a Plex session first.
+> Never map port `1420` out of the container.
+
 ---
+
 
 ## What makes this fork different
 
@@ -21,17 +77,25 @@ multi-user service.
 
 | | Upstream Halcyon | VolkBuster |
 |---|---|---|
-| **Rendering** | In each viewer's browser | On the host GPU, streamed over WebRTC |
-| **Backends** | Jellyfin or Plex | Plex only |
 | **Who gets in** | Whoever opens the page | Only accounts you've shared a Plex library with |
-| **Settings** | One user's, in localStorage | Per-viewer, server-side |
+| **Whose library** | The one the app is configured for | Each viewer's own, resolved from their Plex token |
+| **Setup** | Every viewer, in their own browser | The owner, once |
+| **Backends** | Jellyfin or Plex | Plex only |
 | **Admin** | Anyone at the screen | Owner only, enforced server-side |
-| **2.5D fallback** | Yes | Removed — weak devices get the stream instead |
+| **Dev endpoints in production** | `/dev-proxy`, `/__play`, `/__feedback` live | Removed from the production server |
+| **2.5D fallback** | Yes | Removed |
 
-The point of rendering server-side is that the store is **built once and stays
-standing**. A returning viewer reattaches to a store that already exists rather
-than paying the scene build again, and a phone that could never run three.js
-gets the same store as the HTPC, because it only has to play video.
+Each viewer sees their own access because the store's Plex connection is
+resolved from *their* token — Plex only returns what that account can reach. It
+is not a permission this code applies; it is what asking Plex as them returns.
+
+### What is not built yet
+
+The store is currently rendered in each viewer's own browser and proxied behind
+the gate — one shared store, so everyone drives the same camera. The design this
+is heading for renders per-viewer instances on the host GPU and streams them
+over WebRTC, which is what makes a phone able to walk the aisles and stops the
+scene rebuilding on every visit. That is the next phase, not today's behaviour.
 
 Full design: [`docs/architecture/2026-09-06-plex-only-streaming-fork.md`](docs/architecture/2026-09-06-plex-only-streaming-fork.md).
 
@@ -55,84 +119,34 @@ account in a minute. The gate asks a different question.
 | Stream-only, 2.5D removed | Done |
 | Plex-only | Done |
 | Front door — Plex gate, sessions, per-user config | Done |
+| Store served behind the gate; one setup for everyone | Done |
 | Rendering instance pool | Next |
 | Cloudflare Tunnel + TURN | Not started |
 | Playback handoff | Not started |
 | Mobile portrait framing | Not started |
 
-Signing in works today and the gate is enforced. The store itself is not yet
-served behind it — that's the instance pool.
+Signing in works, the gate is enforced, and the store is served behind it. What
+the instance pool adds is per-viewer rendering on the host GPU.
 
-## Running it
-
-Needs **Node 22.6+** (the test runner uses type stripping).
-
-### Docker — one command
-
-```bash
-docker run -d --name volkbuster --restart unless-stopped \
-  -p 3355:3355 -v volkbuster-data:/data \
-  ghcr.io/vanticstudio/volk-buster-video:latest
-```
-
-Or with compose:
-
-```bash
-curl -O https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/main/docker-compose.yml
-docker compose up -d
-```
-
-Then read the setup code and open the app:
-
-```bash
-docker logs volkbuster | grep -i "setup code"
-```
-
-Nothing to configure, nothing to clone, nothing to build. The image is published
-multi-arch (amd64 + arm64) on every push to `main`. Signing and encryption keys
-are generated on first boot and kept beside the database; which Plex server the
-store gates on is chosen in the browser, from a list of the servers you own.
-
-The setup code is asked for once. Reading it from the log proves you control the
-host, which stops the first stranger who finds the address from claiming your
-store. It is cleared the moment setup finishes.
-
-### From source
-
-```bash
-npm ci
-cp server/.env.example server/.env      # fill in the three required values
-npm run build
-npm run serve &                         # the store, on loopback
-npm run server                          # the front door, on :3355
-```
-
-Neither needs configuration. `server/.env.example` exists only for deployments
-that manage secrets externally.
+## How it fits together
 
 Two processes, one public port. The store app has no authentication of its own,
 so it binds to loopback and is reachable only through the front door, which
-checks a Plex session first and then proxies. **Never publish `APP_PORT`** —
-doing so serves the whole library to anyone who finds it.
+checks a Plex session and then proxies. Upstream's dev endpoints (`/dev-proxy`,
+`/__play`, `/__feedback`) are removed from the production server rather than
+gated — you cannot forget to protect something that is not registered.
 
+```
+Internet ──▶ (tunnel/router) ──▶ front door :3355   ← the only public surface
+                  127.0.0.1 ───┬─ store app :1420   ← never exposed
+                               └─ rendering instances (later)
+```
 
+Development needs **Node 22.6+** (the test runner uses type stripping):
 
 ```bash
-npm test            # 539 tests, no framework, about a second
-npm run build       # three custom gates, then two typechecks, then vite
-```
-
-### Deployment shape
-
-Only the front door is ever exposed. Vite and every rendering instance bind to
-loopback, which makes upstream's dev middleware (`/dev-proxy`, `/__play`,
-`/__feedback`) unreachable rather than merely gated — you cannot forget to
-protect a port you never published.
-
-```
-Internet ──▶ cloudflared ──▶ front door :3355     ← the only public surface
-              127.0.0.1 ───┬─ store app :1420     ← never exposed
-                           └─ rendering instances (later)
+npm test            # 558 tests, no framework, about a second
+npm run build       # three custom gates, two typechecks, then vite
 ```
 
 ## Building on it
