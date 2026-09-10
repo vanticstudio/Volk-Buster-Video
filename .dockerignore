@@ -17,6 +17,17 @@
 !tools/list-slots.mjs
 !tools/remote-play-server.mjs
 
+# The front door. Needed at BUILD time (`npm run build` runs `tsc -p server`)
+# and at RUN time (the entrypoint execs server/index.ts), so leaving it out of
+# this whitelist produced an image with no gate in it at all.
+!server
+
+# The container entrypoint, which starts the store on loopback and the front
+# door on the public port. Only this one file from deploy/ — the systemd unit,
+# the install scripts and the icons are host-side tooling with no place in an
+# image.
+!deploy/docker-entrypoint.sh
+
 # Local-only dev rigs that may sit inside the re-included dirs on a dev
 # checkout (absent from a clean clone; vite.config treats their entry pages
 # as optional).
