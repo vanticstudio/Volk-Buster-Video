@@ -58,18 +58,13 @@ const MEDIA_STATUS_AVAILABLE = 5;
 // lives in seerr-config.ts so it can be unit-tested without this module's
 // Tauri/DOM imports — see tests/seerr-config.test.ts.
 export function getJellyseerrConfig(): JellyseerrConfig | null {
-  // import.meta.env members must be referenced literally — vite substitutes
-  // them at build time, so a computed lookup would resolve to nothing.
-  const env: Record<string, string | undefined> = typeof import.meta.env !== 'undefined' ? {
-    jellyseerr_url: import.meta.env.VITE_JELLYSEERR_URL,
-    jellyseerr_apikey: import.meta.env.VITE_JELLYSEERR_APIKEY,
-    seerr_url: import.meta.env.VITE_SEERR_URL,
-    seerr_apikey: import.meta.env.VITE_SEERR_APIKEY,
-    overseerr_url: import.meta.env.VITE_OVERSEERR_URL,
-    overseerr_apikey: import.meta.env.VITE_OVERSEERR_APIKEY,
-  } : {};
+  // NO import.meta.env FALLBACK. Vite substitutes VITE_* literally at build
+  // time, so an API key read that way is compiled into dist/assets/main-*.js
+  // and readable by every viewer — upstream's own seeding log said as much.
+  // Operator-supplied credentials come from the server instead (the third tier
+  // below), which keeps the key host-side.
   const own = resolveSeerr((key) =>
-    (typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null) ?? env[key] ?? null);
+    (typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null) ?? null);
   if (own) return own;
   // Third tier (GH #129): this server's operator configured a request server
   // for everyone and kept the API key host-side, so there is a working

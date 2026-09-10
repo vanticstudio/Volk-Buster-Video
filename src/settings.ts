@@ -190,14 +190,20 @@ export function getSetting<T = unknown>(key: string): T {
       return raw as unknown as T;
     }
   }
-  if (typeof import.meta.env !== 'undefined') {
-    const envKey = `VITE_${key.toUpperCase()}`;
-    const envVal = (import.meta.env as Record<string, string | undefined>)[envKey];
-    if (envVal !== undefined && envVal !== '') {
-      if (def?.kind === 'toggle') return (envVal === '1' || envVal === 'true') as unknown as T;
-      return envVal as unknown as T;
-    }
-  }
+  // NO import.meta.env FALLBACK — and the reason is not obvious enough to leave
+  // unwritten. Upstream looked up `VITE_${key.toUpperCase()}` here with a
+  // COMPUTED key. Vite can only substitute VITE_* members it can see
+  // literally, so a computed lookup forces it to inline the ENTIRE env object
+  // into the bundle — every VITE_ value, including credentials read nowhere
+  // near this function. Removing the literal reads elsewhere did not stop the
+  // leak; this line was still publishing all of them.
+  //
+  // Verified by building with canary values and grepping dist/: with this
+  // present, VITE_JELLYFIN_PASSWORD and the API keys appear verbatim in
+  // dist/assets/main-*.js. With it gone, they cannot reach the bundle at all.
+  //
+  // Settings come from localStorage (hydrated per-user by the front door) or
+  // from the registry default. Nothing needs a build-time override.
   return (def ? (def.default as unknown as T) : (undefined as unknown as T));
 }
 

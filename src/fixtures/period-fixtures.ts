@@ -383,7 +383,7 @@ function drawRewinderLogo(canvas: HTMLCanvasElement, spec: LogoSpec): void {
   c.fillStyle = spec.textColor;
   const baseY = 84;
   let x = 22;
-  const main = brandString('brand-wordmark', 'HALCYON');
+  const main = brandString('brand-wordmark', 'VOLKBUSTER');
   const sub = brandString('brand-subword-video', 'VIDEO');
   c.font = `700 52px ${fam}`;
   c.fillText(main, x, baseY);

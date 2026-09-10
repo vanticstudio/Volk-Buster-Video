@@ -3360,7 +3360,7 @@ function paintPlaceholderBase(ctx: CanvasRenderingContext2D, w: number, h: numbe
     ctx.font = `900 ${Math.round(bandH * 0.42)}px ${BB_ARCHIVO_BLACK}, Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(brandString('brand-wordmark', 'HALCYON'), w / 2, bandY + bandH / 2);
+    ctx.fillText(brandString('brand-wordmark', 'VOLKBUSTER'), w / 2, bandY + bandH / 2);
   }
   ctx.restore();
 }

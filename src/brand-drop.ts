@@ -596,7 +596,7 @@ function splitBrandName(name: string): { main: string; sub?: string } {
 function nameStrings(name: string): Record<string, string> {
   const caps = name.toUpperCase();
   // 'brand-wordmark' and the terminal's exit row are the SHORT mark (defaults
-  // 'HALCYON' / 'CLOSE VOLKBUSTER APP'), so they get the name without its
+  // 'VOLKBUSTER' / 'CLOSE VOLKBUSTER APP'), so they get the name without its
   // VIDEO/VIDEOS line — the same split the emblem makes.
   const short = splitBrandName(name).main;
   return {
@@ -605,7 +605,7 @@ function nameStrings(name: string): Record<string, string> {
     'app-titlebar-brand': caps,
     'pos-system-title': `${caps} RENTAL SYSTEM`,
     // Missed until 2026-08-14: a rebranded store's own manager terminal still
-    // offered to close the HALCYON app.
+    // offered to close the VOLKBUSTER app.
     'terminal-exit-label': `CLOSE ${short} APP`,
     'exit-confirm-prompt': `CLOSE ${caps} AND RETURN TO THE SYSTEM?`,
     'app-closing-log': `Closing ${name} app...`,

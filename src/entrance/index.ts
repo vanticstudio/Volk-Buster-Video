@@ -1086,7 +1086,7 @@ export class EntranceCheckout implements StoreFixture {
     ctx.fillRect(PAD_X - CH * 0.5, PAD_Y, SAFE_W + CH, BAR_H);
     ctx.font = `bold ${FONT_PX}px "Courier New", monospace`;
     ctx.fillStyle = CRT_INK;
-    ctx.fillText(brandString('pos-system-title', 'HALCYON RENTAL SYSTEM'), PAD_X, PAD_Y + (BAR_H - FONT_PX) / 2);
+    ctx.fillText(brandString('pos-system-title', 'VOLKBUSTER RENTAL SYSTEM'), PAD_X, PAD_Y + (BAR_H - FONT_PX) / 2);
 
     // The idle screen is also the manager terminal's only in-world signpost
     // (UX pass 2026-08): the Left press at the counter was taught nowhere,

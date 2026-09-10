@@ -1,0 +1,71 @@
+<!doctype html>
+<!--
+  Cover-thumbnail harness.
+
+  The settings drawer shows a 480x270 preview for each `bb_cover_*` value, and
+  those previews are box wraps carrying the house wordmark — so they go stale
+  the moment a fork rebrands. Upstream generated them with
+  tools/gen_setting_thumbs.mjs, which is absent from this checkout, so this page
+  plus tools/gen-cover-thumbs.mjs replaces it for the four covers that actually
+  show the brand.
+
+  Served by `vite dev` so the TypeScript modules resolve as-is. Driven by
+  Puppeteer; not part of the app and never shipped in a build.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>Cover thumb harness</title>
+<style>body { margin: 0; background: #202020; }</style>
+</head>
+<body>
+<script type="module">
+import { getActiveLogoSpec } from '/src/logo-spec.ts';
+import { buildCustomTemplateWrap, buildCustomTicketWrap, ensureWrapFontsLoaded } from '/src/logo-wrap.ts';
+import { bundledFontsReady } from '/src/bundled-fonts.ts';
+
+const W = 480, H = 270;
+
+/**
+ * Fit a wrap canvas into the thumbnail frame.
+ *
+ * "Contain", not "cover": a wrap is much wider than 16:9 and cropping it would
+ * cut the wordmark, which is the entire subject of these four thumbnails. The
+ * backdrop matches the drawer's own surround so the letterboxing reads as
+ * frame rather than as a rendering fault.
+ */
+function frame(src) {
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#202020';
+  ctx.fillRect(0, 0, W, H);
+  const scale = Math.min(W / src.width, H / src.height);
+  const w = src.width * scale, h = src.height * scale;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, (W - w) / 2, (H - h) / 2, w, h);
+  return out;
+}
+
+async function run() {
+  // The wrap painters resolve their face through the brand font stack, and a
+  // face that lands late bakes the wrong glyph metrics into the canvas
+  // permanently — same ordering rule the real boot follows.
+  await bundledFontsReady();
+  const spec = getActiveLogoSpec();
+  await new Promise((r) => ensureWrapFontsLoaded(spec, r));
+
+  const out = {};
+  for (const medium of ['vhs', 'dvd']) {
+    out[`bb_cover_${medium}--standard`] = frame(buildCustomTemplateWrap(spec, medium)).toDataURL('image/png');
+    out[`bb_cover_${medium}--ticket`] = frame(buildCustomTicketWrap(spec, medium)).toDataURL('image/png');
+  }
+  window.__thumbs = out;
+  document.title = 'ready';
+}
+
+run().catch((e) => {
+  window.__thumbError = String(e && e.stack || e);
+  document.title = 'error';
+});
+</script>
+</body>
+</html>

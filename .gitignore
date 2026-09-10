@@ -64,3 +64,5 @@ store.db*
 
 # Agent/editor scaffolding that is not part of the project.
 .claude/
+.impeccable/
+.mcp.json

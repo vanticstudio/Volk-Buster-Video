@@ -62,8 +62,11 @@ const PER_PLATFORM_FETCH = 500;
 const FULL_LIBRARY_PAGE = 2000;
 
 export function getRommConfig(): RommConfig | null {
-  const url = (typeof localStorage !== 'undefined' ? localStorage.getItem('romm_url') : null) || (typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_ROMM_URL : null);
-  const apiKey = (typeof localStorage !== 'undefined' ? localStorage.getItem('romm_apikey') : null) || (typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_ROMM_APIKEY : null);
+  const url = (typeof localStorage !== 'undefined' ? localStorage.getItem('romm_url') : null);
+  // No VITE_ fallback: Vite inlines those into the shipped bundle, so an API
+  // key read that way is readable by every viewer. Operator-supplied keys come
+  // from the SERVER, via operator-defaults.ts, and are attached per request.
+  const apiKey = (typeof localStorage !== 'undefined' ? localStorage.getItem('romm_apikey') : null);
   if (url && apiKey) return { url: url.replace(/\/$/, ''), apiKey };
   // Third tier (GH #129): this server's operator configured a Romm for
   // everyone and kept the key host-side. Only consulted when the visitor has

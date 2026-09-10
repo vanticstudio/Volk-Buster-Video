@@ -40,7 +40,7 @@ export interface LogoSpec {
   textColor: string;    // wordmark color   (default cream)
   borderColor: string;  // inner pinstripe + 3D extrusion sides (default brass)
   innerBorder: boolean; // the thin inset outline inside the emblem edge
-  mainText: string;     // "HALCYON" — the big wordmark
+  mainText: string;     // "VOLKBUSTER" — the big wordmark
   subText: string;      // "VIDEO" | "VIDEOS" | "ENTERTAINMENT" | "" — smaller, right-aligned below main
   bandText: string;     // rotated side-band text, e.g. "10,000 VIDEOS" ("" = none)
   taglineText: string;  // banner under the emblem, e.g. "OPEN LATE" ("" = none)

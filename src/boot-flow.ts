@@ -45,7 +45,6 @@ import {
   clearMediaSources,
   labelForUrl,
   listMediaSources,
-  primaryMediaSource,
 } from './media-sources';
 import {
   initSetupFlow,
@@ -428,36 +427,29 @@ export function showLoginOverlay() {
   if (overlay) {
     overlay.classList.add('visible');
 
-    const envUrl = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYFIN_URL : undefined;
-    const savedUrl = localStorage.getItem('jellyfin_url') || envUrl;
+    // NO import.meta.env HERE, deliberately — see the block comment on
+    // seedOperatorDefaults below. Vite inlines every VITE_* value into the
+    // shipped bundle, so a credential read here is a credential published.
+    const savedUrl = localStorage.getItem('jellyfin_url');
     if (savedUrl) {
       const urlInput = document.getElementById('login-url') as HTMLInputElement;
       if (urlInput) urlInput.value = savedUrl;
     }
 
-    const envUser = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYFIN_USERNAME : undefined;
-    const savedUsername = localStorage.getItem('jellyfin_username') || envUser;
+    const savedUsername = localStorage.getItem('jellyfin_username');
     const userInput = document.getElementById('login-user') as HTMLInputElement;
     if (userInput) {
       if (savedUsername) userInput.value = savedUsername;
       userInput.focus();
     }
 
-    const envPass = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYFIN_PASSWORD : undefined;
-    const passInput = document.getElementById('login-pass') as HTMLInputElement;
-    if (passInput && envPass) {
-      passInput.value = envPass;
-    }
-
     // Jellyseerr (optional) -- same persistence mechanism as the Jellyfin
     // fields above, just two extra fields that stay blank when unused.
-    const envJellyseerrUrl = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYSEERR_URL : undefined;
-    const savedJellyseerrUrl = localStorage.getItem('jellyseerr_url') || envJellyseerrUrl;
+    const savedJellyseerrUrl = localStorage.getItem('jellyseerr_url');
     const jellyseerrUrlInput = document.getElementById('login-jellyseerr-url') as HTMLInputElement;
     if (jellyseerrUrlInput) jellyseerrUrlInput.value = savedJellyseerrUrl || '';
 
-    const envJellyseerrKey = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYSEERR_APIKEY : undefined;
-    const savedJellyseerrKey = localStorage.getItem('jellyseerr_apikey') || envJellyseerrKey;
+    const savedJellyseerrKey = localStorage.getItem('jellyseerr_apikey');
     const jellyseerrKeyInput = document.getElementById('login-jellyseerr-key') as HTMLInputElement;
     if (jellyseerrKeyInput) jellyseerrKeyInput.value = savedJellyseerrKey || '';
 
@@ -471,13 +463,11 @@ export function showLoginOverlay() {
     // stays hidden (values still prefilled, just not shown) unless the Video
     // Games section is switched on in Settings, so opting in still requires a
     // deliberate settings-drawer toggle before Romm creds are even offered.
-    const envRommUrl = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_ROMM_URL : undefined;
-    const envRommKey = typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_ROMM_APIKEY : undefined;
     const rommUrlInput = document.getElementById('login-romm-url') as HTMLInputElement | null;
-    const savedRommUrl = localStorage.getItem('romm_url') || envRommUrl || '';
+    const savedRommUrl = localStorage.getItem('romm_url') || '';
     if (rommUrlInput) rommUrlInput.value = savedRommUrl;
     const rommKeyInput = document.getElementById('login-romm-key') as HTMLInputElement | null;
-    if (rommKeyInput) rommKeyInput.value = localStorage.getItem('romm_apikey') || envRommKey || '';
+    if (rommKeyInput) rommKeyInput.value = localStorage.getItem('romm_apikey') || '';
     hideIfOperatorManaged('romm', savedRommUrl, [rommUrlInput, rommKeyInput]);
     const rommColumn = document.getElementById('login-romm-column');
     if (rommColumn) rommColumn.style.display = getSetting<boolean>('bb_games_enabled') ? '' : 'none';
@@ -813,35 +803,23 @@ function seedConnectionDefaults(log: BootFlowDeps['log']): void {
     localStorage.setItem(key, value);
     return true;
   };
-  const seeded: string[] = [];
-  // A service the SERVER manages is never seeded from the bundle: writing the
-  // build's copy of the key into this browser would win over the operator's
-  // (both halves present beats the operator fallback) and put the credential
-  // back in the visitor's hands — losing the whole point of tier 2 to a
-  // leftover .env.local.
-  if (!operatorDefault('jellyseerr')
-      && import.meta.env.VITE_JELLYSEERR_URL && import.meta.env.VITE_JELLYSEERR_APIKEY) {
-    const a = seed('jellyseerr_url', import.meta.env.VITE_JELLYSEERR_URL);
-    const b = seed('jellyseerr_apikey', import.meta.env.VITE_JELLYSEERR_APIKEY);
-    if (a || b) seeded.push('Jellyseerr / Overseerr');
-  }
-  if (!operatorDefault('romm')
-      && import.meta.env.VITE_ROMM_URL && import.meta.env.VITE_ROMM_APIKEY) {
-    const a = seed('romm_url', import.meta.env.VITE_ROMM_URL);
-    const b = seed('romm_apikey', import.meta.env.VITE_ROMM_APIKEY);
-    if (a || b) {
-      seeded.push('Romm');
-      // A seeded Romm with the game section still off would stock nothing.
-      if (!localStorage.getItem('bb_games_enabled')) localStorage.setItem('bb_games_enabled', '1');
-    }
-  }
-  if (seeded.length) {
-    log(
-      `[System] ${seeded.join(' and ')} configured from this build's env. Note the API key ships `
-      + 'inside the bundle: anyone using this store can read it.',
-      'system'
-    );
-  }
+  // NOTHING IS SEEDED FROM THE BUNDLE ANY MORE.
+  //
+  // Upstream seeded Jellyseerr and RomM credentials here from VITE_* values,
+  // and its own log line admitted the consequence: "the API key ships inside
+  // the bundle: anyone using this store can read it." Vite inlines every VITE_*
+  // value into dist/assets/main-*.js at build time, so those were never
+  // secrets — they were published strings, readable from devtools.
+  //
+  // Survivable when the store served one household on a LAN. This fork is
+  // reachable from the internet and serves everyone the owner shared a Plex
+  // library with, so a bundled API key is a key handed to all of them.
+  //
+  // Operator-supplied credentials now come from ONE place: the server, via
+  // operator-defaults.ts (`HALCYON_*` env, read through /__halcyon/config and
+  // attached per request). Those never enter the bundle. Anything else, a
+  // viewer configures in their own browser.
+  void seed;
 }
 
 export async function checkCredentialsAndLoad() {
@@ -854,34 +832,13 @@ export async function checkCredentialsAndLoad() {
   // an operator's defaults are what an arriving visitor is meant to boot into.
   seedConnectionDefaults(d.log);
 
-  const envUrl = (typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYFIN_URL : undefined) || '';
-  const envUser = (typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYFIN_USERNAME : undefined) || '';
-  const envPass = (typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_JELLYFIN_PASSWORD : undefined) || '';
-
-  let jellyfinUrl = localStorage.getItem('jellyfin_url') || envUrl;
-  let token = localStorage.getItem('jellyfin_token');
-  let userId = localStorage.getItem('jellyfin_userid');
-
-  // If no saved token/userId, attempt auto-authentication using credentials stored in .env.local / env
-  if ((!token || !userId || !jellyfinUrl) && envUrl && envUser && envPass) {
-    d.log('[System] File credentials (.env.local) found. Authenticating automatically...', 'system');
-    try {
-      const session = await provider().authenticate(envUrl, { username: envUser, password: envPass });
-      localStorage.setItem('jellyfin_url', envUrl);
-      localStorage.setItem('jellyfin_username', envUser);
-      localStorage.setItem('jellyfin_token', session.accessToken);
-      localStorage.setItem('jellyfin_userid', session.userId);
-      localStorage.setItem('jellyfin_last_userid', session.userId);
-      jellyfinUrl = envUrl;
-      token = session.accessToken;
-      userId = session.userId;
-      d.log(`[System] Auto-authenticated successfully as ${session.userName}.`, 'system');
-      // (The Jellyseerr/Romm seed that used to live here now runs for every
-      // boot, in seedConnectionDefaults above — GH #129.)
-    } catch (err: any) {
-      d.log(`[System] Auto-authentication from file credentials failed: ${err?.message || err}`, 'system');
-    }
-  }
+  // Upstream auto-authenticated here from VITE_JELLYFIN_USERNAME/PASSWORD. Both
+  // are gone: Vite inlines VITE_* into the shipped bundle, so that was a
+  // PLAINTEXT PASSWORD compiled into JavaScript every viewer downloads. The
+  // path is doubly dead anyway — Jellyfin is no longer a registered provider.
+  const jellyfinUrl = localStorage.getItem('jellyfin_url') || '';
+  const token = localStorage.getItem('jellyfin_token');
+  const userId = localStorage.getItem('jellyfin_userid');
 
   let escaped = false;
   let retryTimeoutId: any = null;
@@ -1018,35 +975,22 @@ export async function checkCredentialsAndLoad() {
         retryTimeoutId = setTimeout(async () => {
           if (escaped) return;
 
-          // Before each retry, check if cached token fails validation. If so, attempt to re-auth from cached credentials.
+          // Upstream re-authenticated here from a stored username + password.
+          // That branch is gone with the bundled credentials that fed it: this
+          // function purges `jellyfin_password` on entry (its own "security
+          // hardening" line), and VITE_JELLYFIN_PASSWORD no longer exists, so
+          // both operands were always null — dead code guarding a plaintext
+          // password path.
+          //
+          // Plex does not work this way regardless. A Plex session is a token
+          // obtained through the PIN flow, and a stale one is re-established by
+          // signing in again at the front door, not by replaying a password the
+          // store never had.
           const freshToken = localStorage.getItem('jellyfin_token') || token;
           try {
-            const isValid = await provider().validateSession(jellyfinUrl, sessionOf(freshToken!, activeUserId));
-            if (!isValid) {
-              const user = localStorage.getItem('jellyfin_username') || envUser;
-              const pass = localStorage.getItem('jellyfin_password') || envPass;
-              if (user && pass && jellyfinUrl) {
-                d.log(`[System] ${provider().displayName} token stale — re-authenticating...`, 'system');
-                const session = await provider().authenticate(jellyfinUrl, { username: user, password: pass });
-                // Through the source list, not the bare keys: the sync reads
-                // its credentials from there now, so writing only the legacy
-                // keys would refresh a token nothing goes on to use and retry
-                // forever against the stale one (GH #84).
-                const stale = primaryMediaSource();
-                addMediaSource({
-                  id: stale?.id,
-                  kind: stale?.kind ?? provider().id,
-                  url: jellyfinUrl,
-                  token: session.accessToken,
-                  userId: session.userId,
-                  userName: session.userName,
-                  name: stale?.name ?? labelForUrl(jellyfinUrl),
-                });
-                d.log('[System] Re-auth OK.', 'system');
-              }
-            }
+            await provider().validateSession(jellyfinUrl, sessionOf(freshToken!, activeUserId));
           } catch (e: any) {
-            d.log(`[System] Silent re-auth check failed: ${e.message || e}`, 'system');
+            d.log(`[System] Session check failed: ${e.message || e}`, 'system');
           }
 
           // Double the delay for exponential backoff up to the cap
