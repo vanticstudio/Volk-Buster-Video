@@ -112,14 +112,55 @@ const SHARED_CSS = `
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 `;
 
-function shell(title: string, body: string, script = ''): string {
+/**
+ * The link preview.
+ *
+ * THIS PAGE IS THE ONLY THING A CRAWLER EVER SEES. When the owner pastes the
+ * tunnel URL into a chat, Discord/Slack/iMessage/WhatsApp fetch it with no
+ * cookie and no Plex account — so they land here, on the gate, not in the
+ * store. Cards therefore belong on this page and nowhere else; og:image tags
+ * inside the app would be behind the very gate the crawler cannot pass.
+ *
+ * `origin` is built from the request's own Host header (server/index.ts),
+ * because this process has no idea what public name it is reached by — the
+ * tunnel terminates elsewhere. Absolute URLs are not optional here: Twitter
+ * and iMessage both ignore a relative og:image outright.
+ *
+ * `noindex` stays. A card in a chat window is a person being invited; a search
+ * result is a stranger finding a login page for someone's private library.
+ * They are not the same thing, and og tags do not imply the second.
+ */
+function shareTags(origin: string): string {
+  if (!origin) return '';
+  const img = `${origin}/signin/share.png`;
+  const desc = 'Browse a Plex library the way you browsed a video shop in 1996 — '
+    + 'aisles, shelves, clamshell cases. Members only: sign in with Plex.';
+  return `
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="VolkBuster Video">
+<meta property="og:title" content="VolkBuster Video">
+<meta property="og:description" content="${esc(desc)}">
+<meta property="og:url" content="${esc(origin)}/">
+<meta property="og:image" content="${esc(img)}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="VolkBuster Video — your Plex library, as a video store">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="VolkBuster Video">
+<meta name="twitter:description" content="${esc(desc)}">
+<meta name="twitter:image" content="${esc(img)}">
+<meta name="theme-color" content="${INK}">`;
+}
+
+function shell(title: string, body: string, script = '', origin = ''): string {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
-<title>${esc(title)}</title>
+<title>${esc(title)}</title>${shareTags(origin)}
 <style>${SHARED_CSS}</style>
 </head><body>
 <main class="card">
@@ -139,7 +180,7 @@ ${script ? `<script>${script}</script>` : ''}
  * genuinely clicks — so `target="_blank"` survives popup blockers, which
  * matters most on the phones this fork is meant to serve.
  */
-export function signInPage(): string {
+export function signInPage(origin = ''): string {
   const body = `
   <h1>Members only</h1>
   <p>This store is for people with access to its Plex library. Sign in with
@@ -224,7 +265,7 @@ export function signInPage(): string {
   });
 })();`;
 
-  return shell('Sign in — VolkBuster Video', body, script);
+  return shell('Sign in — VolkBuster Video', body, script, origin);
 }
 
 /**

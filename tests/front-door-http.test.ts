@@ -13,7 +13,7 @@
 
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import { createFrontDoor } from '../server/index.ts';
 import { FrontDoorStore } from '../server/store.ts';
 import { deriveKey } from '../server/secrets.ts';
@@ -466,4 +466,113 @@ test('the cookie is always HttpOnly and SameSite=Lax, whatever the transport', a
   const raw = res.headers.get('set-cookie') || '';
   assert.match(raw, /HttpOnly/);
   assert.match(raw, /SameSite=Lax/);
+});
+
+// ─── The link preview ───────────────────────────────────────────────────────
+//
+// The tunnel URL gets pasted into a chat window, and the crawler that follows
+// it has no Plex account. So the card lives on the GATE, and the card's URL is
+// built from the request's own Host header — which is attacker-controlled, and
+// is the reason most of these tests exist.
+//
+// They use node:http directly rather than fetch(): undici forbids overriding
+// the Host header outright, so a fetch-based version of the tests below would
+// silently exercise the socket's own host and prove nothing about the ones
+// that matter.
+
+function raw(path: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
+  const { hostname, port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ hostname, port, path, method: 'GET', headers }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode || 0, body }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test('the gate carries a share card for an unauthenticated crawler', async () => {
+  const { status, body } = await raw('/', { accept: 'text/html', host: 'store.volkanovski.dev' });
+  assert.equal(status, 200);
+  assert.match(body, /property="og:image" content="http:\/\/store\.volkanovski\.dev\/signin\/share\.png"/);
+  assert.match(body, /property="og:url" content="http:\/\/store\.volkanovski\.dev\/"/);
+  assert.match(body, /name="twitter:card" content="summary_large_image"/);
+  // Dimensions are declared: several unfurlers lay the card out before the
+  // image arrives, and without them they reserve a thumbnail-sized box and
+  // never re-expand it.
+  assert.match(body, /property="og:image:width" content="1200"/);
+  assert.match(body, /property="og:image:height" content="630"/);
+});
+
+test('the card image is served without a session', async () => {
+  // The whole point. A crawler cannot sign in, so a card behind the gate is a
+  // card nobody ever sees.
+  const res = await realFetch(`${base}/signin/share.png`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  const buf = Buffer.from(await res.arrayBuffer());
+  assert.ok(buf.length > 1000, 'a real PNG, not an error page');
+  assert.equal(buf.subarray(1, 4).toString('latin1'), 'PNG', 'PNG magic bytes');
+});
+
+test('the store itself is still gated — the card opens nothing', async () => {
+  // Adding an unauthenticated route is exactly the change that could widen the
+  // gate by accident, so this re-asserts the thing that must not have moved.
+  const res = await realFetch(`${base}/api/movies`, { headers: { accept: 'application/json' } });
+  assert.equal(res.status, 401);
+});
+
+test('a forged Host cannot break out of the meta attribute', async () => {
+  // The Host header reaches an HTML attribute. Anything that survives quoting
+  // here is script execution on the login page for someone's private library.
+  const { status, body } = await raw('/', {
+    accept: 'text/html',
+    host: 'evil"><script>alert(1)</script>',
+  });
+  assert.doesNotMatch(body, /<script>alert\(1\)<\/script>/);
+  // Rejected outright rather than escaped-and-used: a header that shape is not
+  // a host, and shipping no card is a purely cosmetic loss.
+  assert.doesNotMatch(body, /og:image/, 'a malformed host yields no card at all');
+  assert.equal(status, 200, 'and the page still renders');
+});
+
+test('a path smuggled into Host is refused', async () => {
+  // It would otherwise re-point og:url at something under the sender's control
+  // while still looking host-shaped to a naive check.
+  const { body } = await raw('/', { accept: 'text/html', host: 'good.example.com/../../evil' });
+  assert.doesNotMatch(body, /og:image/);
+});
+
+test('x-forwarded-proto decides the scheme, not the socket', async () => {
+  // Behind cloudflared the connection to this process is plain HTTP while the
+  // viewer's is HTTPS. An http:// og:image on an https:// page is blocked as
+  // mixed content, and the card silently does not render.
+  const { body } = await raw('/', {
+    accept: 'text/html',
+    host: 'store.example.com',
+    'x-forwarded-proto': 'https',
+  });
+  assert.match(body, /content="https:\/\/store\.example\.com\/signin\/share\.png"/);
+});
+
+test('a proxy chain reports the ORIGINAL scheme', async () => {
+  // Each hop appends, so the viewer's own scheme is the first entry. Reading
+  // the last one describes the last proxy, not the browser.
+  const { body } = await raw('/', {
+    accept: 'text/html',
+    host: 'store.example.com',
+    'x-forwarded-proto': 'https, http',
+  });
+  assert.match(body, /content="https:\/\/store\.example\.com\/signin\/share\.png"/);
+});
+
+test('the gate stays out of search results', async () => {
+  // A card in a chat is an invitation. A search result is a stranger finding
+  // the login page for someone's private library. og tags do not imply the
+  // second, and noindex is what keeps them apart.
+  const { body } = await raw('/', { accept: 'text/html', host: 'store.example.com' });
+  assert.match(body, /name="robots" content="noindex, nofollow"/);
 });

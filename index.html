@@ -4,6 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VolkBuster Video</title>
+
+    <!-- Link preview for a store served WITHOUT the front door — the public
+         demo, or a `vite preview` someone put on a domain. The gated
+         deployment never reaches this: a crawler has no Plex session, so it
+         gets the sign-in page instead, and that page carries its own card
+         (shareTags in server/signin-page.ts) built with an absolute URL from
+         the request's Host.
+
+         Relative here because the build cannot know what origin it will be
+         served from. Discord, Slack and Facebook resolve a relative og:image
+         against the page URL; Twitter wants it absolute and will skip the
+         image. That is the correct trade for a page that mostly is not the
+         one being shared — the gate is. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="VolkBuster Video" />
+    <meta property="og:title" content="VolkBuster Video" />
+    <meta property="og:description" content="Browse a Plex library the way you browsed a video shop in 1996 — aisles, shelves, clamshell cases." />
+    <meta property="og:image" content="/share/volkbuster-share.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="VolkBuster Video — your Plex library, as a video store" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/share/volkbuster-share.png" />
+    <meta name="theme-color" content="#0d1018" />
     <script>
       window.addEventListener('error', (event) => {
         const isScriptError = event.target && event.target.tagName === 'SCRIPT';
