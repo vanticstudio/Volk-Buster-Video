@@ -16,6 +16,7 @@ import type { StoreTheme } from './themes';
 import type { EmblemDoc } from './emblem-doc';
 import { getBrandPack } from './brand-pack';
 import { applyEmblemToSpec, loadEmblemDoc } from './emblem-render';
+import { DEFAULT_THEME_ID } from './store-config-keys';
 
 export type LogoShape =
   | 'rect'
@@ -273,8 +274,8 @@ export function getActiveLogoSpec(theme?: StoreTheme): LogoSpec {
       // in step with THEME_ALIASES in themes.ts.
       'bb-90s': 'bb-1990', 'bb-2000s': 'bb-2010', 'hv-90s': 'bb-1990', 'owl-90s': 'bb-1990',
     };
-    const id = savedTheme ? (legacy[savedTheme] ?? savedTheme) : 'bb-1990';
-    base = DEFAULT_LOGO_SPECS[id] ?? DEFAULT_LOGO_SPECS['bb-1990'];
+    const id = savedTheme ? (legacy[savedTheme] ?? savedTheme) : DEFAULT_THEME_ID;
+    base = DEFAULT_LOGO_SPECS[id] ?? DEFAULT_LOGO_SPECS[DEFAULT_THEME_ID];
   }
   const packLogo = getBrandPack()?.logo;
   if (packLogo) base = mergeLogoSpec(base, packLogo);

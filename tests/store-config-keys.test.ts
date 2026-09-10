@@ -13,6 +13,7 @@
 // services, brand — do make the trip.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { DEFAULT_THEME_ID } from '../src/store-config-keys.ts';
 
 // Node has no localStorage; shim before import (same idiom as
 // media-sources.test.ts / playback-routing.test.ts).
@@ -221,4 +222,33 @@ test('machine A configured, machine B hydrated, same store', () => {
   // B keeps its own machine and its own credentials.
   assert.equal(localStorage.getItem('bb_quality'), 'low');
   assert.equal(localStorage.getItem('jellyfin_token'), 'B-OWN-TOKEN');
+});
+
+// ─── The era a store opens in ───────────────────────────────────────────────
+//
+// DEFAULT_THEME_ID lives in this zero-import leaf rather than in themes.ts
+// because logo-spec.ts needs it too and the two cannot import each other —
+// themes.ts pulls DEFAULT_LOGO_SPECS from logo-spec.ts, so the arrow points one
+// way only. Each had grown its own literal fallback as a result, and nothing
+// stopped them disagreeing: a fresh store could resolve one era's palette and
+// the other era's logo.
+
+test('a store with no saved theme opens in the 2010 era', () => {
+  assert.equal(DEFAULT_THEME_ID, 'bb-2010');
+});
+
+test('the default is a real theme id, not a typo', () => {
+  // The whole failure mode of a bare string constant. A misspelling here does
+  // not throw — resolveThemeId hands back the unknown id, THEMES misses, and
+  // the store falls through to whatever the ?? on the other side supplies.
+  assert.match(DEFAULT_THEME_ID, /^bb-(1990|1993|2000|2010)$/);
+});
+
+test('the default is NOT what the retired 90s aliases resolve to', () => {
+  // Those aliases are a statement about specific ids — hv-90s and owl-90s are
+  // retired 90s chains, and they go to the nearest surviving 90s era on
+  // purpose. This constant is a statement about a store that has never chosen.
+  // Folding the two together would silently re-skin every existing store that
+  // still resolves through an alias, which is the change nobody asked for.
+  assert.notEqual(DEFAULT_THEME_ID, 'bb-1990');
 });

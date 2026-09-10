@@ -1799,6 +1799,15 @@ function updateSettingsStatus() {
  * row passes 'Service' (the staff page has no index row to navigate from).
  */
 function openSettingsDrawer(page: SettingGroup | 'Service' | 'Controls' | null = null) {
+  // Viewer mode has no settings, full stop. Removing the menu rows that reach
+  // here is not enough on its own: the drawer's own Back handler walks from any
+  // page to the full category index, so ANY entry point is an entry point to
+  // everything. Refusing here is the check that cannot be walked around, and it
+  // is what makes the removed rows a design decision rather than a hope.
+  if (isViewerMode()) {
+    logToConsole('[Settings] Not available here — settings are managed by the store owner.', 'system');
+    return;
+  }
   if (ui.isPowerMenuOpen) closePowerMenu();
 
   ui.isSettingsDrawerOpen = true;

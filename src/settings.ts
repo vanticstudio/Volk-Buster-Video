@@ -28,6 +28,7 @@ import { scheduleConfigPush } from './store-config-sync';
 import { enableFpsMeter, initFpsMeter, FPS_METER_KEY } from './fps-meter';
 import { setRemotePlayEnabled } from './remote-play';
 import { THEMES, getActiveTheme, resolveThemeId, WALL_PAINT_OPTIONS, applyThemeCssVars } from './themes';
+import { DEFAULT_THEME_ID } from './store-config-keys';
 import { refreshBrand } from './brand-live';
 import { COVER_VARIANTS, USER_WRAP_SPECS, getUserWrap, setUserWrap } from './video-case';
 import type { CaseMedium } from './video-case';
@@ -493,7 +494,7 @@ export function registerCoreSettings(): void {
     values: [
       ...Object.values(THEMES).map((t) => ({ id: t.id, label: t.name })),
     ],
-    default: 'bb-1990',
+    default: DEFAULT_THEME_ID,
     applyMode: 'rebuild-scene',
     // Footer bar clips hints at 62 chars — the follow-mode line is written
     // to fit whole, so the "detaches" half is never truncated away.

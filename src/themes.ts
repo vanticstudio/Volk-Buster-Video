@@ -1,5 +1,6 @@
 import type { LogoSpec } from './logo-spec';
 import { getBrandPack } from './brand-pack';
+import { DEFAULT_THEME_ID } from './store-config-keys';
 import {
   DEFAULT_LOGO_SPECS, getActiveLogoSpec,
   VOLKBUSTER_BLUE, VOLKBUSTER_TRIM, VOLKBUSTER_ACCENT, VOLKBUSTER_BLUE_LIT,
@@ -193,7 +194,7 @@ export const THEME_ALIASES: Record<string, string> = {
 
 /** Canonicalize a possibly-legacy theme id to a current THEMES key. */
 export function resolveThemeId(id: string | null | undefined): string {
-  if (!id) return 'bb-1990';
+  if (!id) return DEFAULT_THEME_ID;
   return THEME_ALIASES[id] ?? id;
 }
 

@@ -108,8 +108,16 @@ export function counterTerminalRows(demo: boolean): string[] {
  * the machine and the store's own configuration, neither of which the front
  * door takes instructions about. This is about not offering a viewer a menu
  * full of things that are not theirs, one of which suspends the owner's NAS.
+ *
+ * CONTROLS & HELP WAS HERE AND HAD TO GO. It looked harmless — a reference
+ * card, no knobs — but it opens the settings drawer on its Controls page, and
+ * Back from any page sets settingsPage = null, which regenerates the drawer as
+ * the full category index: Store Look, Connection, Performance, the lot. One
+ * ESC from a help screen was the whole store's settings. The rows below are now
+ * the only two, and openSettingsDrawer() refuses outright in viewer mode so a
+ * future row cannot reopen the same door by accident.
  */
-export const VIEWER_TERMINAL_ROWS: readonly string[] = ['btn-controls', 'btn-signout', 'btn-cancel'];
+export const VIEWER_TERMINAL_ROWS: readonly string[] = ['btn-signout', 'btn-cancel'];
 
 // Body lines the header sits above (drawTerminal draws its own
 // "<BRAND> RENTAL SYSTEM" banner), plus where to park the blinking cursor.

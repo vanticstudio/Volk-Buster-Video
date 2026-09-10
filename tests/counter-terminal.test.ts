@@ -76,15 +76,28 @@ test('the viewer ring offers only the basics', () => {
   // Pinned as an exact list, not a length: the failure this guards against is
   // a row being ADDED back, and a count assertion passes if one swaps for
   // another. Every id here must be a row a visitor can safely press.
-  assert.deepEqual([...VIEWER_TERMINAL_ROWS], ['btn-controls', 'btn-signout', 'btn-cancel']);
+  assert.deepEqual([...VIEWER_TERMINAL_ROWS], ['btn-signout', 'btn-cancel']);
+});
+
+test('CONTROLS & HELP is not offered to a viewer, however harmless it looks', () => {
+  // IT WAS, AND IT WAS THE WHOLE SETTINGS DRAWER. The row opens the drawer on
+  // its Controls page — a reference card with no knobs on it, which is why it
+  // seemed safe. But Back from ANY drawer page sets settingsPage = null and
+  // regenerates the drawer as the full category index: Store Look, Connection,
+  // Performance, the lot. One press of ESC on a help screen and a viewer on the
+  // tunnelled port was in the store's settings.
+  //
+  // The row is gone AND openSettingsDrawer() refuses in viewer mode, because
+  // removing doors does not help when every door opens onto the same room.
+  assert.ok(!VIEWER_TERMINAL_ROWS.includes('btn-controls'));
 });
 
 test('no viewer row reconfigures the store or the machine', () => {
   // The specific rows that made this necessary. SUSPEND SYSTEM sleeps the
   // OWNER'S NAS; MANAGER OVERRIDE opens the staff knobs; CHANGE SERVER / LOG OUT
   // repoints the store's own Plex connection for whoever loads it next.
-  for (const id of ['btn-settings', 'btn-service', 'btn-suspend', 'btn-cec-toggle',
-    'btn-logout', 'btn-exit', 'btn-streaming', 'btn-media-date']) {
+  for (const id of ['btn-settings', 'btn-service', 'btn-controls', 'btn-suspend',
+    'btn-cec-toggle', 'btn-logout', 'btn-exit', 'btn-streaming', 'btn-media-date']) {
     assert.ok(!VIEWER_TERMINAL_ROWS.includes(id), `${id} must not be offered to a viewer`);
   }
 });

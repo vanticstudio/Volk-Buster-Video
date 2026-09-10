@@ -13,6 +13,21 @@
 // the whole point of an explicit skip-set is that the argument is written
 // down where the next person changing it will read it.
 
+/**
+ * The era a store opens in before anyone has chosen one.
+ *
+ * HERE rather than in themes.ts because logo-spec.ts needs it too, and those
+ * two cannot import each other: themes.ts pulls DEFAULT_LOGO_SPECS from
+ * logo-spec.ts, so the arrow only points one way. Both had grown their own
+ * literal fallback as a result, free to drift apart — which is the bug this
+ * placement removes rather than papers over with a "keep in step" comment.
+ *
+ * Distinct from the THEME_ALIASES table in themes.ts. Those retire specific
+ * 90s chains to the nearest surviving 90s era, which is a statement about
+ * those ids; this is a statement about a store with no saved theme at all.
+ */
+export const DEFAULT_THEME_ID = 'bb-2010';
+
 /** Every key in the app's settings family is a candidate; the skip-set below
  *  carves out the ones that describe a machine rather than a store. */
 const SYNC_PREFIX = /^bb_/;
