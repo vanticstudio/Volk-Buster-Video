@@ -6,12 +6,12 @@
 # and there is no published image until you push a v*.*.* tag and make the GHCR
 # package public. Over SSH to the NAS:
 #
-#   git clone https://github.com/<you>/volkbuster-video /DATA/volkbuster-src
+#   git clone https://github.com/vanticstudio/Volk-Buster-Video.git /DATA/volkbuster-src
 #   cd /DATA/volkbuster-src
 #   docker build -t volkbuster-video:latest .
 #
 # Then this file finds it locally — no registry involved. Once you do publish a
-# tag, swap `image:` for ghcr.io/<you>/volkbuster-video:latest and ZimaOS will
+# tag, swap `image:` for ghcr.io/vanticstudio/volk-buster-video:latest and ZimaOS will
 # pull updates instead.
 #
 # ONE PUBLIC PORT. The store app runs on loopback inside the container and is
@@ -76,7 +76,7 @@ services:
       port_map: "3355"
       # Served straight from the repo so the tile matches the app. Point this at
       # your own fork once it is pushed — GitHub raw URLs are what ZimaOS reads.
-      icon: https://raw.githubusercontent.com/<your-github-user>/volkbuster-video/main/deploy/icon/volkbuster-icon-256.png
+      icon: https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/main/deploy/icon/volkbuster-icon-256.png
       scheme: http
       index: /
       description:

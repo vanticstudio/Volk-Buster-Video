@@ -70,7 +70,7 @@ Needs **Node 22.6+** (the test runner uses type stripping).
 ### Docker (a NAS, or anything else)
 
 ```bash
-git clone <your-repo> && cd volkbuster-video
+git clone https://github.com/vanticstudio/Volk-Buster-Video.git && cd Volk-Buster-Video
 docker compose up -d
 docker logs volkbuster | grep -i "setup code"
 open http://<host>:3355
