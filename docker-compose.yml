@@ -1,0 +1,79 @@
+services:
+  volkbuster:
+    build: .
+    # Prebuilt image instead of building from the clone (published on
+    # releases — see .github/workflows/publish-image.yml):
+    # image: ghcr.io/volkbuster-video/volkbuster-video
+    restart: unless-stopped
+    init: true
+
+    # Host networking is what makes Remote Play work: WebRTC has to offer
+    # the machine's real LAN address, and behind the default docker bridge
+    # the container can only offer 172.x candidates no phone or set-top box
+    # can reach. The server takes :1420 (plus :3478/udp and 49200-49260/udp
+    # when the TURN relay is in use).
+    network_mode: host
+
+    # Browse-only alternative (no Remote Play streaming): delete
+    # network_mode above and publish the web port instead:
+    # ports:
+    #   - "1420:1420"
+
+    environment:
+      REMOTE_PLAY_SEED: /data/remote-play-seed.json
+      # The server answers to localhost, raw IPs, and the names of the
+      # machine it runs on — but in a container that means the CONTAINER's
+      # hostname, not your host's. So reaching it by a DNS name (your NAS
+      # name, a reverse proxy, a custom domain) needs that name listed
+      # here: comma-separated, a leading dot (".example.com") matches
+      # subdomains, "all" disables the check. Refused requests explain
+      # this and echo back the name they were refused under.
+      # HALCYON_ALLOWED_HOSTS: volkbuster.example.com
+
+      # Hosting the store for other people? These wire Jellyseerr and RomM up
+      # for EVERY visitor, so a first-timer arrives in a stocked store without
+      # touching setup — and without being handed your API key. Read here, on
+      # the server, and never inlined into the bundle (that is what the VITE_*
+      # variables in .env.local do, and why they are the household path rather
+      # than the hosting one): visitors are told the ADDRESS, the credential is
+      # attached host-side by the built-in proxy, and only for the endpoints
+      # the store itself calls. HALCYON_SEERR_* / HALCYON_OVERSEERR_* work too.
+      # See README.md → "Running a store for other people".
+      # HALCYON_JELLYSEERR_URL: http://seerr.lan:5055
+      # HALCYON_JELLYSEERR_APIKEY: your_jellyseerr_api_key
+      # HALCYON_ROMM_URL: http://romm.lan:8080
+      # HALCYON_ROMM_APIKEY: username:password
+
+    volumes:
+      # The Remote Play "seed": log into the store from any browser once
+      # and flip Settings → Connection → Remote Play ON — that donates
+      # your media-server login (Jellyfin or Plex, minus any password) to
+      # the server, so every /remote.html visitor gets their own private
+      # instance of your real library. This volume keeps it across
+      # container rebuilds.
+      - volkbuster-data:/data
+      # Brand drop-in customization (logo, pack): any files in public/user-assets
+      # on the host overlay onto the served app, so a logo change needs only a
+      # container restart, not a rebuild. See README.md → "Make it yours".
+      - ./public/user-assets:/app/dist/user-assets
+      # Keep F8 feedback pins (in-app visual bug reports) on the host:
+      # - ./feedback:/app/feedback
+
+    # Hardware GL — REQUIRED for Remote Play "private instances" (the mode
+    # where the container itself renders a store per visitor). Those run the
+    # real 3D store in a headless Chromium, and a container with no GPU has no
+    # WebGL at all, so the store never builds and /remote.html can only report
+    # why. Uncomment on a Linux host with an Intel/AMD/NVIDIA render node; it
+    # also buys hardware video encode, which is what makes several
+    # simultaneous streams cheap.
+    #
+    # Docker Desktop on macOS and Windows cannot pass a GPU into its VM, so
+    # private instances are not available there — browse in a normal browser
+    # and use the SHARED MIRROR (Settings → Connection → Remote Play) to serve
+    # viewers from a machine that has a display. Everything else in the
+    # container (the store itself, the web UI, the seed) works regardless.
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+volumes:
+  volkbuster-data:

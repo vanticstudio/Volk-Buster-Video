@@ -1,0 +1,55 @@
+{
+  "name": "volkbuster-video",
+  "private": true,
+  "version": "0.15.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node tools/check-file-budget.mjs && node tools/check-provider-boundary.mjs && node tools/list-slots.mjs --check && tsc && tsc -p server && vite build",
+    "preview": "vite preview",
+    "serve": "vite preview --port 1420 --strictPort --host",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:rental": "node --experimental-strip-types --test tests/rental-clock.test.ts",
+    "test:shelf": "node --experimental-strip-types --test tests/shelf-order.test.ts",
+    "test:nav": "node --experimental-strip-types --test tests/clerk-nav.test.ts",
+    "test:versions": "node --experimental-strip-types --test tests/version-collapse.test.ts",
+    "test:why": "node --experimental-strip-types --test tests/recommend-why.test.ts",
+    "test:picks": "node --experimental-strip-types --test tests/staff-picks.test.ts",
+    "test:promo": "node --experimental-strip-types --test tests/promo-campaigns.test.ts",
+    "test:comingsoon": "node --experimental-strip-types --test tests/coming-soon-feed.test.ts",
+    "test:releasedate": "node --experimental-strip-types --test tests/media-release-date.test.ts tests/media-date-screen.test.ts",
+    "test:playbackflow": "node --experimental-strip-types --test tests/playback-flow.test.ts",
+    "test:setup": "node --experimental-strip-types --test tests/store-setup-screens.test.ts",
+    "test:displayhz": "node --experimental-strip-types --test tests/display-hz.test.ts",
+    "test:subs": "node --experimental-strip-types --test tests/subtitle-delivery.test.ts",
+    "test:terminal": "node --experimental-strip-types --test tests/counter-terminal.test.ts",
+    "test:streamingchoice": "node --experimental-strip-types --test tests/streaming-choice.test.ts",
+    "test:sharedplace": "node --experimental-strip-types --test tests/shared-place.test.ts",
+    "tauri": "tauri",
+    "server": "node --experimental-strip-types server/index.ts",
+    "test:gate": "node --experimental-strip-types --test tests/plex-gate.test.ts",
+    "test:sessions": "node --experimental-strip-types --test tests/sessions.test.ts",
+    "test:ownerkeys": "node --experimental-strip-types --test tests/owner-keys.test.ts",
+    "test:secrets": "node --experimental-strip-types --test tests/secrets.test.ts",
+    "test:frontdoor": "node --experimental-strip-types --test tests/front-door-store.test.ts",
+    "test:frontdoorhttp": "node --experimental-strip-types --test tests/front-door-http.test.ts"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "hls.js": "^1.6.16",
+    "n8ao": "^2.0.0",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^26.4.1",
+    "@types/three": "^0.184.1",
+    "puppeteer": "^25.2.0",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.6"
+  }
+}

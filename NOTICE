@@ -1,0 +1,69 @@
+VolkBuster Video
+================
+
+Copyright (C) 2026 the VolkBuster Video authors
+Portions Copyright (C) 2026 the Halcyon Video authors
+
+Licensed under the GNU General Public License, version 3 or later.
+See LICENSE for the full text.
+
+
+MODIFICATION NOTICE
+-------------------
+
+This is a MODIFIED version of Halcyon Video
+(https://github.com/halcyon-video/halcyon-video), modified beginning
+2026-09-06 by the VolkBuster Video authors.
+
+GPL-3.0 section 5(a) requires that a modified work carry prominent notices
+stating that it was changed and giving a relevant date. That is what this file
+is. It is the obligation forks most often overlook, and it costs nothing to
+meet.
+
+Substantive changes from upstream:
+
+  - Removed the 2.5D DOM store; the app is 3D only, rendered server-side.
+  - Removed Jellyfin support; Plex is the only backend.
+  - Removed the device gate (a viewer's browser no longer renders anything,
+    so it no longer needs WebGL2).
+  - Added a front door service (server/) providing Plex sign-in, an access
+    gate based on Plex library sharing, signed sessions, encrypted token
+    storage, and per-user configuration with owner-only enforcement.
+  - Rebranded throughout.
+
+Upstream is the origin of the 3D store itself: the procedural floor plan, the
+case and poster art pipeline, the rental ritual, the clerk, the fixtures and
+the period fit-out. This fork changes who the software serves and where it
+renders, not what it is.
+
+
+THIRD-PARTY ASSETS
+------------------
+
+Redistributed assets carry their own terms, which travel with them and are not
+superseded by the GPL:
+
+  public/models/ATTRIBUTION.md         3D models (CC-BY 3.0/4.0 and CC0)
+  public/demo-posters/ATTRIBUTION.md   public-domain poster art
+  public/demo-clip/ATTRIBUTION.md      Big Buck Bunny (CC BY 3.0,
+                                       Blender Foundation)
+  src/assets/licenses/                 SIL Open Font License typefaces
+
+Do not remove these files. OFL faces additionally may not be sold on their own,
+and their Reserved Font Names must not be reused.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+
+A NOTE ON HOSTING VERSUS DISTRIBUTING
+-------------------------------------
+
+This is GPL-3.0, not AGPL-3.0. Running a modified version as a network service
+is not "conveying" under the GPL, so hosting this for your own users — even
+heavily modified — creates no obligation to publish your changes.
+
+The obligations in sections 4, 5 and 6 attach when you hand someone a COPY: a
+public repository, a tarball, a built dist/, a container image, a desktop
+installer, or an APK. At that point the whole work, including modifications,
+is GPL-3.0, and the corresponding source must accompany any binary form or be
+offered from a clearly stated location alongside it.

@@ -1,0 +1,410 @@
+/**
+ * The front door — the only process this deployment exposes to the internet.
+ *
+ * `cloudflared` points here and nowhere else. Vite preview and, in a later
+ * phase, every rendering instance bind to loopback. That is the whole point of
+ * the shape: upstream's dev/preview middleware (`/dev-proxy`, an arbitrary
+ * fetch relay; `/__play`, which spawns mpv; `/__feedback`, which writes files)
+ * ships live in `npm run serve`, which is what Docker and systemd actually run.
+ * Rather than trying to gate those routes, this design makes them unreachable
+ * — you cannot forget to protect a port you never published.
+ *
+ * WHAT IT DOES
+ *   GET  /healthz              liveness, unauthenticated by design
+ *   POST /auth/pin             begin Plex sign-in, returns a code + auth URL
+ *   POST /auth/claim           exchange an authorised pin for a session cookie
+ *   POST /auth/signout         drop this session
+ *   GET  /api/me               who am I, and am I the owner
+ *   GET  /api/config           this viewer's store settings
+ *   PUT  /api/config           write one setting, owner rules enforced here
+ *   *                          the store app, behind the gate
+ *
+ * Phase 1 of docs/architecture/2026-09-06-plex-only-streaming-fork.md. The
+ * instance pool (Phase 2) attaches at `requireSession` — it is the thing that
+ * turns a session into a rendering instance.
+ */
+
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { loadConfig, type FrontDoorConfig } from './config.ts';
+import { FrontDoorStore } from './store.ts';
+import { signSession, verifySession, type SessionPayload } from './sessions.ts';
+import { grantsAccessTo, isOwnerOf } from './plex-gate.ts';
+import { createPin, claimPin, fetchAccount, fetchResources, type PlexClientIdentity } from './plex-client.ts';
+import { assertWritable } from './owner-keys.ts';
+import { signInPage, signedInPage } from './signin-page.ts';
+
+const COOKIE = 'hv_session';
+
+const PIN_TTL_MS = 10 * 60_000;
+const PIN_RATE_WINDOW_MS = 10 * 60_000;
+const PIN_RATE_MAX = 10;
+
+/**
+ * Who is calling.
+ *
+ * Behind a Cloudflare Tunnel every request arrives from loopback, so the socket
+ * address is the same for everyone and useless as a key. `CF-Connecting-IP` is
+ * the real client, and it is trustworthy HERE specifically because the tunnel
+ * is the only path in — nothing else can reach this port to forge it. That
+ * assumption dies the moment this service is exposed directly, which is the
+ * reason it is written down rather than left implicit.
+ */
+function callerKey(req: IncomingMessage): string {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf) return cf;
+  return req.socket.remoteAddress || 'unknown';
+}
+
+/** The bundled display face, self-hosted — never fetched from Google. */
+let fontCache: Buffer | null = null;
+function archivoBlack(): Buffer | null {
+  if (fontCache) return fontCache;
+  try {
+    fontCache = readFileSync(new URL('../src/assets/archivo-black.ttf', import.meta.url));
+    return fontCache;
+  } catch {
+    // The page falls back to Arial Black. A missing font is a cosmetic
+    // problem, never a reason to fail a sign-in.
+    return null;
+  }
+}
+
+function html(res: ServerResponse, status: number, body: string): void {
+  res.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'DENY',
+    'referrer-policy': 'no-referrer',
+    // The page talks to itself and, by opening a link, to plex.tv. Nothing else.
+    'content-security-policy':
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+      + "font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; "
+      + "base-uri 'none'; frame-ancestors 'none'",
+    'cache-control': 'no-store',
+  });
+  res.end(body);
+}
+
+// ─── HTTP helpers ────────────────────────────────────────────────────────────
+
+function json(res: ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(payload),
+    // This is an API for our own page; nothing should frame it or sniff it.
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'DENY',
+    'referrer-policy': 'no-referrer',
+  });
+  res.end(payload);
+}
+
+function readCookie(req: IncomingMessage, name: string): string | null {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return null;
+}
+
+/**
+ * `Secure` is unconditional. The only way to reach this service is through the
+ * Cloudflare Tunnel, which is HTTPS, so a cookie that would also travel over
+ * plain HTTP has no legitimate use here.
+ *
+ * `SameSite=Lax` rather than Strict: the Plex sign-in sends the viewer to
+ * app.plex.tv and back, and Strict would withhold the cookie on that return
+ * navigation, so a freshly signed-in viewer would land looking signed out.
+ */
+function setSessionCookie(res: ServerResponse, token: string, maxAgeMs: number): void {
+  res.setHeader('set-cookie',
+    `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}`);
+}
+
+function clearSessionCookie(res: ServerResponse): void {
+  res.setHeader('set-cookie', `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+}
+
+async function readJsonBody(req: IncomingMessage, limitBytes = 64 * 1024): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    // A body limit is not optional on a public endpoint: without it, one
+    // request can exhaust the process's memory.
+    if (total > limitBytes) throw new Error('request body too large');
+    chunks.push(chunk as Buffer);
+  }
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+// ─── The service ─────────────────────────────────────────────────────────────
+
+export function createFrontDoor(cfg: FrontDoorConfig, db: FrontDoorStore, now: () => number = Date.now) {
+  /**
+   * Sign-in state belongs to THIS front door, not to the module.
+   *
+   * Module-level maps would be shared by every instance in a process — which
+   * makes two servers silently share a rate-limit budget and a pin table, and
+   * makes them untestable in isolation (the second test in a file inherits the
+   * first one's exhausted limiter). Per-instance is both the correct scope and
+   * the testable one.
+   *
+   * In memory rather than in SQLite on purpose: a pin is worthless the moment
+   * it is claimed, and a restart mid-sign-in just means signing in again.
+   */
+  const pendingPins = new Map<number, { createdAt: number }>();
+  const pinAttempts = new Map<string, number[]>();
+
+  /**
+   * Per-caller rate limit on `/auth/pin` — the one endpoint that is both
+   * unauthenticated and reaches out to plex.tv on a stranger's say-so.
+   *
+   * Without it, anyone who can load the sign-in page can make this server
+   * hammer plex.tv, and can exhaust the shared pending-pin table for everybody
+   * else. A global cap alone does not help: it is a shared resource, so one
+   * caller filling it is a denial of service against real viewers.
+   */
+  function rateLimited(req: IncomingMessage, at: number): boolean {
+    const key = callerKey(req);
+    const hits = (pinAttempts.get(key) || []).filter((t) => at - t < PIN_RATE_WINDOW_MS);
+    hits.push(at);
+    pinAttempts.set(key, hits);
+    // Keep the map bounded on a long-lived process.
+    if (pinAttempts.size > 5000) {
+      for (const [k, v] of pinAttempts) {
+        if (!v.some((t) => at - t < PIN_RATE_WINDOW_MS)) pinAttempts.delete(k);
+      }
+    }
+    return hits.length > PIN_RATE_MAX;
+  }
+
+  const identity: PlexClientIdentity = {
+    // Stable per install. See plex-client.ts — Plex keys session eviction off
+    // this, so it is read from config and only generated once.
+    clientId: process.env.PLEX_CLIENT_ID || 'volkbuster-front-door',
+    product: process.env.PLEX_PRODUCT || 'VolkBuster Video',
+    version: '0.15.0',
+    device: 'VolkBuster Front Door',
+    platform: 'Node',
+  };
+
+  /**
+   * Resolve the caller's session, or null.
+   *
+   * Two layers, and both are needed. The cookie proves the session was minted
+   * here and has not expired. The database lookup proves it has not since been
+   * revoked — a signature alone cannot express "the owner unshared this person
+   * ten minutes ago", because the token was already signed before that
+   * happened.
+   */
+  function currentSession(req: IncomingMessage): { payload: SessionPayload; token: string } | null {
+    const raw = readCookie(req, COOKIE);
+    if (!raw) return null;
+    const payload = verifySession(raw, cfg.sessionSecret, now());
+    if (!payload) return null;
+    const stored = db.getSession(payload.sid);
+    if (!stored) return null;
+    return { payload, token: stored.token };
+  }
+
+  /**
+   * Re-check a live session against Plex sharing, at most once per
+   * `revalidateAfterMs`.
+   *
+   * Without this, revocation only takes effect when the session expires — up to
+   * a month later. With it, unsharing a library removes access within a day,
+   * and the check costs one plex.tv call per viewer per day.
+   */
+  async function revalidate(sid: string, uid: string, token: string): Promise<boolean> {
+    const stored = db.getSession(sid);
+    if (!stored) return false;
+    if (now() - stored.lastValidatedAt < cfg.revalidateAfterMs) return true;
+
+    const resources = await fetchResources(token, identity);
+    if (!grantsAccessTo(resources, cfg.plexMachineId)) {
+      // Every session this person holds goes, not just the one that happened to
+      // make this request — otherwise their other tab keeps working.
+      db.deleteSessionsForUser(uid);
+      return false;
+    }
+    db.touchSession(sid, now());
+    return true;
+  }
+
+  return async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url || '/', 'http://localhost');
+    const path = url.pathname;
+
+    try {
+      // ── Unauthenticated ────────────────────────────────────────────────────
+
+      if (path === '/healthz') {
+        return json(res, 200, { ok: true });
+      }
+
+      // Served unauthenticated because the sign-in page itself needs it, and a
+      // display face is not a secret.
+      if (path === '/signin/archivo-black.ttf') {
+        const font = archivoBlack();
+        if (!font) return json(res, 404, { error: 'not found' });
+        res.writeHead(200, {
+          'content-type': 'font/ttf',
+          'content-length': font.length,
+          'cache-control': 'public, max-age=31536000, immutable',
+        });
+        res.end(font);
+        return;
+      }
+
+      // Begin sign-in. Deliberately reachable without a session — it is how you
+      // get one — so it is the most exposed endpoint in the service.
+      if (path === '/auth/pin' && req.method === 'POST') {
+        // Sweep expired pins on the way in. Cheap, and it keeps an unbounded map
+        // from being an easy memory-exhaustion target.
+        for (const [id, p] of pendingPins) {
+          if (now() - p.createdAt > PIN_TTL_MS) pendingPins.delete(id);
+        }
+        if (rateLimited(req, now())) {
+          return json(res, 429, { error: 'too many sign-in attempts, try again shortly' });
+        }
+        if (pendingPins.size > 100) {
+          return json(res, 429, { error: 'too many sign-ins in flight, try again shortly' });
+        }
+        const pin = await createPin(identity);
+        pendingPins.set(pin.id, { createdAt: now() });
+        return json(res, 200, { id: pin.id, code: pin.code, authUrl: pin.authUrl });
+      }
+
+      // Exchange an authorised pin for a session. THIS is where the gate runs.
+      if (path === '/auth/claim' && req.method === 'POST') {
+        const body = await readJsonBody(req) as { id?: number; aspect?: string };
+        const id = Number(body?.id);
+        if (!Number.isFinite(id) || !pendingPins.has(id)) {
+          return json(res, 400, { error: 'unknown or expired sign-in' });
+        }
+
+        const token = await claimPin(id, identity);
+        if (!token) return json(res, 202, { pending: true });
+        pendingPins.delete(id);
+
+        const [account, resources] = await Promise.all([
+          fetchAccount(token, identity),
+          fetchResources(token, identity),
+        ]);
+        if (!account) return json(res, 502, { error: 'could not read your Plex account' });
+
+        // The gate. A valid Plex login is NOT enough — anyone can make a Plex
+        // account. This asks whether the owner shared this server with them.
+        if (!grantsAccessTo(resources, cfg.plexMachineId)) {
+          return json(res, 403, {
+            error: 'This store is limited to people with access to its Plex library. '
+              + 'Ask the owner to share a library with your Plex account.',
+          });
+        }
+
+        const owner = isOwnerOf(resources, cfg.plexMachineId);
+        db.upsertUser(account.id, account.username, owner, now());
+        const sid = db.createSession(account.id, token, owner, now(), body?.aspect);
+        const exp = now() + cfg.sessionTtlMs;
+        setSessionCookie(res, signSession({ sid, uid: account.id, owner, exp }, cfg.sessionSecret), cfg.sessionTtlMs);
+        return json(res, 200, { ok: true, username: account.username, owner });
+      }
+
+      // ── Authenticated ──────────────────────────────────────────────────────
+
+      const session = currentSession(req);
+
+      if (path === '/auth/signout' && req.method === 'POST') {
+        if (session) db.deleteSession(session.payload.sid);
+        clearSessionCookie(res);
+        // The holding page signs out with a plain <form>, so a browser needs a
+        // redirect; fetch callers still get JSON.
+        if ((req.headers.accept || '').includes('text/html')) {
+          res.writeHead(303, { location: '/' });
+          res.end();
+          return;
+        }
+        return json(res, 200, { ok: true });
+      }
+
+      if (!session) {
+        if (path.startsWith('/api/')) return json(res, 401, { error: 'sign in first' });
+        // A browser gets the gate, not a JSON error. 200 rather than 401
+        // because this IS the page for this request, not a failure to render
+        // one — a 401 with a body makes some clients show their own auth UI.
+        return html(res, 200, signInPage());
+      }
+
+      const { payload, token } = session;
+      if (!(await revalidate(payload.sid, payload.uid, token))) {
+        clearSessionCookie(res);
+        return json(res, 403, { error: 'your access to this Plex library was removed' });
+      }
+
+      // The landing page. Phase 2 replaces this with the instance stream; until
+      // then it is deliberately explicit that there is nothing behind it yet.
+      if (path === '/' && req.method === 'GET') {
+        const stored = db.getSession(payload.sid);
+        return html(res, 200, signedInPage(stored?.uid ?? payload.uid, payload.owner));
+      }
+
+      if (path === '/api/me') {
+        return json(res, 200, { uid: payload.uid, owner: payload.owner });
+      }
+
+      if (path === '/api/config' && req.method === 'GET') {
+        return json(res, 200, db.getConfig(payload.uid));
+      }
+
+      if (path === '/api/config' && req.method === 'PUT') {
+        const body = await readJsonBody(req) as { key?: string; value?: string | null };
+        const key = String(body?.key ?? '');
+
+        // Server-side enforcement. The drawer also hides owner-only rows, but
+        // this endpoint is one fetch away and a hidden control is not a control.
+        const verdict = assertWritable(key, payload.owner);
+        if (!verdict.ok) return json(res, 403, { error: verdict.reason });
+
+        // null CLEARS. Absence is meaningful in this app's config model — a
+        // library switched back on is expressed by deleting its key, so an
+        // empty-string write would not mean the same thing.
+        if (body?.value === null || body?.value === undefined) {
+          db.clearConfig(payload.uid, key);
+        } else {
+          db.setConfig(payload.uid, key, String(body.value), now());
+        }
+        return json(res, 200, { ok: true });
+      }
+
+      return json(res, 404, { error: 'not found' });
+    } catch (err) {
+      // Never leak an internal error to a public caller: the message could name
+      // a path, a query or a token. Log it, answer with nothing.
+      const ref = randomUUID().slice(0, 8);
+      console.error(`[front-door] ${ref}`, err);
+      return json(res, 500, { error: 'something went wrong', ref });
+    }
+  };
+}
+
+/** Entry point. Only runs when this module is executed directly. */
+export function main(): void {
+  const cfg = loadConfig();
+  const db = new FrontDoorStore(cfg.databasePath, cfg.tokenKey);
+  const handler = createFrontDoor(cfg, db);
+  createServer((req, res) => { void handler(req, res); }).listen(cfg.port, () => {
+    console.log(`[front-door] listening on :${cfg.port}, gating Plex server ${cfg.plexMachineId}`);
+  });
+}
+
+// `node server/index.ts` runs the service; importing it (tests) does not.
+if (process.argv[1] && process.argv[1].endsWith('server/index.ts')) main();

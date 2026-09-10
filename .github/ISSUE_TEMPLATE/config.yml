@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Upstream project (Halcyon Video)
+    url: https://github.com/halcyon-video/halcyon-video
+    about: >-
+      VolkBuster is a fork. If your issue is with the 3D store itself rather
+      than with this fork's Plex gate or streaming layer, upstream is likely
+      the better place for it.

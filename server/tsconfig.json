@@ -1,0 +1,29 @@
+{
+  "//": [
+    "The front door is Node, not a browser, and gets its own tsconfig so the two",
+    "worlds' globals stay apart. Adding @types/node to the ROOT config would put",
+    "Node's setTimeout (returns Timeout) and the DOM's (returns number) in the",
+    "same scope for every file in src/, which is a classic source of type errors",
+    "in code that was previously fine.",
+    "",
+    "No DOM lib here on purpose: if a server module ever reaches for `document`",
+    "or `localStorage`, that is a real mistake and this is what catches it."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["."]
+}
