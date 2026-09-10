@@ -41,6 +41,11 @@ services:
       # manage secrets externally; env wins over the generated values.
       PORT: "3355"
       APP_PORT: "1420"
+      # Trust the proxy's client-IP header for per-caller rate limiting.
+      # Safe here because only the proxy can reach the published port; off
+      # by default because a forgeable key gives an attacker unlimited
+      # buckets, which is worse than one shared limit.
+      TRUST_PROXY_HEADERS: "1"
       DATABASE_PATH: "/data/store.db"
       # How long before a signed-in viewer must authenticate again (30 days).
       SESSION_TTL_MS: "2592000000"

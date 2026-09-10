@@ -13,6 +13,14 @@ It is not a menu with a skin on it. It's a store.
 
 ## Install
 
+> **Maintainers, once:** GitHub creates a new container package **private**, and
+> a private package cannot be pulled anonymously — `docker pull` returns 403 and
+> looks like a broken build. After the first successful Actions run, open
+> [package settings](https://github.com/users/vanticstudio/packages/container/volk-buster-video/settings)
+> and set visibility to **Public**. This cannot be automated with the default
+> workflow token.
+
+
 ```bash
 docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -v volkbuster-data:/data ghcr.io/vanticstudio/volk-buster-video:latest
 ```

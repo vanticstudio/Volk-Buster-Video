@@ -333,14 +333,36 @@ test('pin creation is rate limited per caller', async () => {
   assert.equal(last, 429, 'the 11th+ attempt from one caller must be refused');
 });
 
-test('one caller being limited does not lock out everybody else', async () => {
-  for (let i = 0; i < 12; i++) {
-    await realFetch(`${base}/auth/pin`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.7' } });
+test('a forged client IP does NOT buy a fresh rate-limit bucket', async () => {
+  // The counter-intuitive half, and the reason the default is not to trust the
+  // header: an attacker who can set CF-Connecting-IP does not merely evade the
+  // limit, they get an UNLIMITED number of buckets by varying it. Keying on
+  // something forgeable is worse than not keying per-caller at all.
+  delete process.env.TRUST_PROXY_HEADERS;
+  let last = 0;
+  for (let i = 0; i < 14; i++) {
+    last = (await realFetch(`${base}/auth/pin`, {
+      method: 'POST',
+      headers: { 'cf-connecting-ip': `203.0.113.${i}` },  // a different "IP" each time
+    })).status;
   }
-  const other = await realFetch(`${base}/auth/pin`, {
-    method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.8' },
-  });
-  assert.equal(other.status, 200, 'a different caller is unaffected');
+  assert.equal(last, 429, 'varying the header must not reset the limit');
+});
+
+test('with TRUST_PROXY_HEADERS set, callers are limited per IP', async () => {
+  // The opt-in posture, for when nothing but the proxy can reach this port.
+  process.env.TRUST_PROXY_HEADERS = '1';
+  try {
+    for (let i = 0; i < 12; i++) {
+      await realFetch(`${base}/auth/pin`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.7' } });
+    }
+    const other = await realFetch(`${base}/auth/pin`, {
+      method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.8' },
+    });
+    assert.equal(other.status, 200, 'a different caller is unaffected');
+  } finally {
+    delete process.env.TRUST_PROXY_HEADERS;
+  }
 });
 
 // ─── The store is only reachable through the gate ───────────────────────────

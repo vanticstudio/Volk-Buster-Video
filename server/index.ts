@@ -46,18 +46,37 @@ const PIN_RATE_WINDOW_MS = 10 * 60_000;
 const PIN_RATE_MAX = 10;
 
 /**
- * Who is calling.
+ * Who is calling, for rate-limiting purposes.
  *
- * Behind a Cloudflare Tunnel every request arrives from loopback, so the socket
- * address is the same for everyone and useless as a key. `CF-Connecting-IP` is
- * the real client, and it is trustworthy HERE specifically because the tunnel
- * is the only path in — nothing else can reach this port to forge it. That
- * assumption dies the moment this service is exposed directly, which is the
- * reason it is written down rather than left implicit.
+ * `CF-Connecting-IP` is only trusted when TRUST_PROXY_HEADERS says a proxy is
+ * genuinely in front, and the default is NOT to trust it.
+ *
+ * The reasoning runs the opposite way to the obvious one. An attacker who can
+ * set that header freely does not merely evade the limit — they get an
+ * unlimited number of distinct buckets by sending a different value each time,
+ * which is strictly worse than having no per-caller limit at all. A limiter
+ * keyed on something forgeable is an illusion of one.
+ *
+ * Falling back to the socket address behind a tunnel means every caller shares
+ * one bucket, so the limit becomes global rather than per-IP. That is a real
+ * cost — one noisy client can use up everyone's allowance — but it fails
+ * closed and is honest about what it is, which a spoofable key is not.
+ *
+ * Set TRUST_PROXY_HEADERS=1 only when nothing but the proxy can reach this
+ * port, which is exactly the case behind cloudflared with the service bound to
+ * loopback or inside a container network.
  */
 function callerKey(req: IncomingMessage): string {
-  const cf = req.headers['cf-connecting-ip'];
-  if (typeof cf === 'string' && cf) return cf;
+  // Read per call rather than cached at module load, so a test can exercise
+  // both postures in one process. The cost is one env lookup on an endpoint
+  // that is already making a network request to plex.tv.
+  if (process.env.TRUST_PROXY_HEADERS === '1') {
+    const cf = req.headers['cf-connecting-ip'];
+    if (typeof cf === 'string' && cf) return cf.split(',')[0].trim();
+    const xff = req.headers['x-forwarded-for'];
+    const first = Array.isArray(xff) ? xff[0] : xff;
+    if (typeof first === 'string' && first) return first.split(',')[0].trim();
+  }
   return req.socket.remoteAddress || 'unknown';
 }
 

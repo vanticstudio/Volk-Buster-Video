@@ -48,4 +48,17 @@ echo "[entrypoint] front door -> 0.0.0.0:${PORT} (the only public port)"
 # --disable-warning: node prints an ExperimentalWarning for both type
 # stripping and node:sqlite on every start. Both are known and deliberate,
 # and they bury the setup banner an operator is reading the log FOR.
-exec node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts
+#
+# NOT `exec`. exec replaces this shell, which discards the trap above — the
+# store app would then outlive the front door as an orphan still holding :1420,
+# and the next start would fail --strictPort with the port already in use.
+# Running it as a child keeps the trap, so both halves come down together.
+node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts &
+FRONT_PID=$!
+trap 'kill "$APP_PID" "$FRONT_PID" 2>/dev/null || true' EXIT INT TERM
+
+# Exit as soon as EITHER half does. A container still listening on the public
+# port with a dead store behind it answers health checks while serving 502s,
+# which is worse than restarting. `wait -n` is not in POSIX sh, so fall back to
+# waiting on the front door alone where busybox ash lacks it.
+wait -n "$APP_PID" "$FRONT_PID" 2>/dev/null || wait "$FRONT_PID"

@@ -42,9 +42,29 @@ RUN apk add --no-cache chromium coturn nss freetype harfbuzz ca-certificates ttf
 # Chromium download (same trick as the Pages deploy workflow) and point it
 # at the system one. HALCYON_CONTAINER tells the Remote Play server to pass
 # the container-survival flags to Chromium.
+# DATABASE_PATH is everything that must survive the container: the SQLite
+# database, and instance.json beside it holding the generated signing and
+# encryption keys and the chosen Plex server.
+#
+# Defaulted HERE rather than only in compose, because the documented install is
+# a bare `docker run -v volkbuster-data:/data`. Without this the code falls back
+# to ./store.db INSIDE the container, and the volume mounted at /data sits empty
+# and unused. Everything would work perfectly until the container was replaced,
+# at which point every session, both keys and the entire setup would vanish with
+# no error and no way back.
+#
+# (Comments cannot live inside a line-continued instruction — Docker's handling
+# of that is unreliable — hence the separate ENV below rather than folding it
+# into the one above.)
 ENV PUPPETEER_SKIP_DOWNLOAD=1 \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     HALCYON_CONTAINER=1
+ENV DATABASE_PATH=/data/store.db
+
+# Created so the very first boot has somewhere to write even when nothing is
+# mounted at /data. A volume mount shadows this directory; its absence would
+# otherwise be an ENOENT on the first write.
+RUN mkdir -p /data
 
 COPY package.json package-lock.json ./
 RUN npm ci && npm cache clean --force
