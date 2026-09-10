@@ -86,7 +86,8 @@ late rather than leaving a blank page.
 
 ### Store settings on the console — `DONE`
 
-47 settings plus 21 platform toggles on `:3366`, enforced for every viewer via
+28 settings plus 21 per-platform game toggles on `:3366` — 49 controls in all,
+enforced for every viewer via
 the same key injection that already carried library visibility. Credentials,
 hostnames and the per-device render knobs are deliberately excluded, each with
 its reason in `EXCLUDED_KEYS`. The public store has none.

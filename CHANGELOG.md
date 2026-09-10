@@ -48,7 +48,7 @@ small multi-user service, and making it ours.
 ### Added
 
 - **Every store setting is now set on the management console**, not in the store:
-  47 of them plus 21 per-platform game toggles, covering the era, shelf
+  28 of them plus 21 per-platform game toggles, covering the era, shelf
   arrangement, wall colour, storefront, ceiling, what is outside, media format,
   how renting works, departments and playback. They are **enforced** — the owner
   builds one shop and every viewer gets it.
