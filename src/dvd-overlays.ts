@@ -51,6 +51,92 @@ export const DVD_BLUE_WRAP_LAYOUT: Partial<BoxLayout> = {
 //     x≈978), reading bottom→top like the VHS scan's equivalent line.
 const DVD_2003_INK = '#0a0a0a'; // sampled print ink (near-black, cooler than VHS's)
 
+/**
+ * The counter title label, stuck on the front of a rental case.
+ *
+ * WHY IT EXISTS. Everything the wrap prints on the front is the SHOP's
+ * identity — the rental banner, the brand ticket, the footer. The film's own
+ * title reached the front only as the small vertical line up the right edge,
+ * which is an edge marking for a case standing in a rack, not something you
+ * read across a counter. Owner, holding two rented discs: "they don't show the
+ * cover of what the movie is anymore ... very hard to understand what you've
+ * actually got to watch."
+ *
+ * A rental shop's answer was a printed label stuck on the face, and that is
+ * what this is. It is drawn OVER the brand ticket, the way a real one sat over
+ * the artwork, so nothing printed has to move to make room.
+ *
+ * SHARED BY BOTH DVD WRAPS. It went into the 2003 painter first and the blue
+ * variant kept shipping fronts with no readable title — the exact problem the
+ * label was written to end, still present for anyone who picked that cover.
+ * The two wraps use identical front geometry (see the note above
+ * drawDvdBlueOverlays); only the stock and ink differ, so those are the
+ * parameters and nothing else is.
+ *
+ * Geometry is the front brand ticket's, from logo-wrap.ts's
+ * printedPanelPath(rand, 600, 940, 80, 33, H): the panel spans x 600..940. The
+ * label is inset inside it and kept clear of the optional band at y 583.5, so
+ * it lands correctly whether or not the brand carries band text.
+ */
+function drawCounterTitleLabel(
+  ctx: CanvasRenderingContext2D,
+  movie: Movie,
+  stock: string,
+  ink: string,
+): void {
+  const LBL_X = 618, LBL_W = 304;
+  const LBL_Y = 455, LBL_H = 104;
+  ctx.save();
+  ctx.fillStyle = stock;
+  ctx.fillRect(LBL_X, LBL_Y, LBL_W, LBL_H);
+  ctx.strokeStyle = 'rgba(10,10,10,.28)';    // the die-cut edge, not a drawn border
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(LBL_X + 0.75, LBL_Y + 0.75, LBL_W - 1.5, LBL_H - 1.5);
+
+  ctx.fillStyle = ink;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const labelTitle = movie.title.toUpperCase();
+  // Two lines at most: a third would shrink the type below what the label is
+  // for. fitFontPx measures the real face rather than assuming a cap ratio,
+  // the same rule the spine and right-edge fills follow.
+  let lblPx = fitFontPx(ctx, labelTitle, 30, 'bold', LBL_W - 26, 13);
+  ctx.font = `bold ${lblPx}px Arial, sans-serif`;
+  let all = wrapText(ctx, labelTitle, LBL_W - 26);
+  if (all.length > 1) {
+    lblPx = Math.min(lblPx, 26);
+    ctx.font = `bold ${lblPx}px Arial, sans-serif`;
+    all = wrapText(ctx, labelTitle, LBL_W - 26);
+  }
+  const lines = all.slice(0, 2);
+  // A title too long for two lines gets an ellipsis rather than a clean cut —
+  // "THE LORD OF THE RINGS: THE" reads as a different film, which is exactly
+  // the confusion this label exists to end.
+  if (all.length > 2) {
+    let last = lines[1];
+    while (last.length > 3 && ctx.measureText(last + '\u2026').width > LBL_W - 26) {
+      last = last.slice(0, -1);
+    }
+    lines[1] = last + '\u2026';
+  }
+  const lineH = lblPx + 4;
+  const metaPx = 14;
+  const blockH = lines.length * lineH + 6 + metaPx;
+  let ly = LBL_Y + (LBL_H - blockH) / 2;
+  for (const ln of lines) {
+    ctx.fillText(ln, LBL_X + LBL_W / 2, ly);
+    ly += lineH;
+  }
+  // The line underneath is what a counter label carried: year, rating, runtime.
+  ctx.font = `${metaPx}px Arial, sans-serif`;
+  ctx.globalAlpha = 0.72;
+  const sub = [String(movie.year || ''), (movie.rating || 'NR').toUpperCase(), movie.duration || '']
+    .filter(Boolean).join('   \u00b7   ');
+  ctx.fillText(sub, LBL_X + LBL_W / 2, ly + 6);
+  ctx.restore();
+}
+
+
 export function drawDvd2003Overlays(ctx: CanvasRenderingContext2D, movie: Movie) {
   ctx.save();
 
@@ -126,76 +212,7 @@ export function drawDvd2003Overlays(ctx: CanvasRenderingContext2D, movie: Movie)
     my += metaSize + 3;
   }
 
-  // --- Front face: the counter title label ---
-  //
-  // WHY THIS EXISTS. Everything the wrap prints on the front is the SHOP's
-  // identity — the rental banner, the brand ticket, the footer. The movie's own
-  // title reached the front only as the small vertical line up the right edge
-  // below, which is an edge marking for a case standing in a rack, not
-  // something you can read across a counter. Owner, holding two rented discs:
-  // "they don't show the cover of what the movie is anymore ... very hard to
-  // understand what you've actually got to watch."
-  //
-  // A rental shop's answer was a printed label stuck on the face, and that is
-  // what this is: cream stock, shop ink, sitting on the brand ticket the same
-  // way a real one sat over the artwork. It reads at arm's length, and it does
-  // not disturb the wrap's own print — the label is drawn OVER the panel, so
-  // no printed element has to move to make room.
-  //
-  // Geometry is the front brand ticket's, from logo-wrap.ts's
-  // printedPanelPath(rand, 600, 940, 80, 33, H): the panel spans x 600..940.
-  // The label is inset inside it and kept clear of the optional band at
-  // y 583.5, so it lands correctly whether or not the brand carries band text.
-  const LBL_X = 618, LBL_W = 304;
-  const LBL_Y = 455, LBL_H = 104;
-  ctx.fillStyle = '#f6f1e4';                 // label stock, warmer than the print white
-  ctx.fillRect(LBL_X, LBL_Y, LBL_W, LBL_H);
-  ctx.strokeStyle = 'rgba(10,10,10,.28)';    // the die-cut edge, not a drawn border
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(LBL_X + 0.75, LBL_Y + 0.75, LBL_W - 1.5, LBL_H - 1.5);
-
-  ctx.fillStyle = DVD_2003_INK;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  const labelTitle = movie.title.toUpperCase();
-  // Two lines at most: a third would shrink the type below what the label is
-  // for. fitFontPx measures the real face rather than assuming a cap ratio,
-  // the same rule the spine and right-edge fills above follow.
-  let lblPx = fitFontPx(ctx, labelTitle, 30, 'bold', LBL_W - 26, 13);
-  ctx.font = `bold ${lblPx}px Arial, sans-serif`;
-  let all = wrapText(ctx, labelTitle, LBL_W - 26);
-  if (all.length > 1) {
-    lblPx = Math.min(lblPx, 26);
-    ctx.font = `bold ${lblPx}px Arial, sans-serif`;
-    all = wrapText(ctx, labelTitle, LBL_W - 26);
-  }
-  const lines = all.slice(0, 2);
-  // A title too long for two lines gets an ellipsis rather than a clean cut —
-  // "THE LORD OF THE RINGS: THE" reads as a different film, which is exactly
-  // the confusion this label exists to end.
-  if (all.length > 2) {
-    let last = lines[1];
-    while (last.length > 3 && ctx.measureText(last + '\u2026').width > LBL_W - 26) {
-      last = last.slice(0, -1);
-    }
-    lines[1] = last + '\u2026';
-  }
-  const lineH = lblPx + 4;
-  const metaPx = 14;
-  const blockH = lines.length * lineH + 6 + metaPx;
-  let ly = LBL_Y + (LBL_H - blockH) / 2;
-  for (const ln of lines) {
-    ctx.fillText(ln, LBL_X + LBL_W / 2, ly);
-    ly += lineH;
-  }
-  // The line underneath is what a counter label carried: year, rating, runtime.
-  ctx.font = `${metaPx}px Arial, sans-serif`;
-  ctx.fillStyle = 'rgba(10,10,10,.72)';
-  const sub = [String(movie.year || ''), (movie.rating || 'NR').toUpperCase(), movie.duration || '']
-    .filter(Boolean).join('   \u00b7   ');
-  ctx.fillText(sub, LBL_X + LBL_W / 2, ly + 6);
-  ctx.textAlign = 'left';
-  ctx.fillStyle = DVD_2003_INK;
+  drawCounterTitleLabel(ctx, movie, '#f6f1e4', DVD_2003_INK);
 
   // --- Front right edge: erase the printed placeholder line, set the title ---
   ctx.fillStyle = '#ffffff';
@@ -297,6 +314,9 @@ export function drawDvdBlueOverlays(ctx: CanvasRenderingContext2D, movie: Movie)
     ctx.fillText(ln, wx, my);
     my += metaSize + 3;
   }
+
+  // Same label as the 2003 wrap, in this wrap's cream stock and warm ink.
+  drawCounterTitleLabel(ctx, movie, scanColor('dvd', '#f3eadb'), STANDARD_INK);
 
   // --- Front right edge: erase the printed placeholder line, set the title
   // (same column as the plain DVD wrap's own placeholder) ---

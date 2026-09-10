@@ -103,6 +103,15 @@ export function policyKeys(policy: StorePolicy): Record<string, string> {
   // loadPolicy strips them again on read; this is the third guard, and the one
   // that holds even if a future caller builds a policy object by hand.
   const out: Record<string, string> = { ...(policy.settings ?? {}) };
+  // bb_arrangement carries a companion marker, and without it the owner's
+  // choice is silently undone. initializeStoreScene resets bb_arrangement to
+  // herringbone on EVERY boot unless bb_arrangement_user is set — a guard
+  // against screenshot tooling writing the key on the same origin and re-laying
+  // the store between launches. Enforcement is exactly such a write, so the
+  // console saved happily, the viewer's store rebuilt herringbone, and nothing
+  // anywhere reported a problem. Stating the marker says this write is a
+  // decision, not stray tooling.
+  if (out.bb_arrangement) out.bb_arrangement_user = '1';
   out.bb_games_enabled = policy.gamesEnabled ? '1' : '0';
   for (const id of policy.hiddenLibraries) out[`bb_carrylib_${id}`] = '0';
   return out;

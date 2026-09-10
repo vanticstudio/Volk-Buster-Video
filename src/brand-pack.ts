@@ -41,6 +41,7 @@ import { assetUrl } from './asset-url';
 import { registerRuntimeFace } from './bundled-fonts';
 import { BRAND_DROP_DIR, detectBrandDrop } from './brand-drop';
 import { setBrandStringResolver } from './counter-terminal';
+import { DEFAULT_THEME_ID } from './store-config-keys';
 
 /** One face the pack ships, registered under a collision-proof runtime family. */
 export interface BrandPackFontSpec {
@@ -165,7 +166,11 @@ function packApplies(): boolean {
   const list = pack.appliesTo;
   if (!Array.isArray(list) || list.length === 0) return true;
   const saved = readSetting('bb_theme');
-  const themeId = saved ? (THEME_ID_ALIASES[saved] ?? saved) : 'bb-1990';
+  // DEFAULT_THEME_ID, not a literal: this is the third module that had grown
+  // its own copy of the default era, and the one the migration missed. A pack
+  // scoped appliesTo:['bb-2010'] silently did not apply to a first-time
+  // visitor, because this said the store was still 1990.
+  const themeId = saved ? (THEME_ID_ALIASES[saved] ?? saved) : DEFAULT_THEME_ID;
   return list.includes(themeId);
 }
 

@@ -949,7 +949,11 @@ function updateHUDForMode(mode: string) {
     case 'checkout':
       // The Left press is the manager terminal's front door — say so here,
       // standing at the very counter it lives on (UX pass 2026-08).
-      text = 'OK TO CHECK OUT  •  ◀ MANAGER TERMINAL  •  BACK TO BROWSE';
+      // The terminal a viewer reaches carries SIGN OUT and RETURN TO STORE,
+      // not a manager's rows — the same correction browseHintText() makes.
+      text = isViewerMode()
+        ? 'OK TO CHECK OUT  •  ◀ COUNTER TERMINAL  •  BACK TO BROWSE'
+        : 'OK TO CHECK OUT  •  ◀ MANAGER TERMINAL  •  BACK TO BROWSE';
       break;
     case 'backroom':
       // T23: home with the rentals. Arrows pick a tape, OK reads/plays it,

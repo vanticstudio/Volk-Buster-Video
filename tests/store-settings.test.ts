@@ -285,3 +285,35 @@ test('no secret or hostname is on the console, by shape as well as by name', () 
     assert.doesNotMatch(def.key, /_url$/, `${def.key} looks like an address`);
   }
 });
+
+// ─── Companion markers ──────────────────────────────────────────────────────
+
+test('enforcing an arrangement also states the marker that makes it stick', () => {
+  // FOUND BY A SMOKE TEST, NOT BY THIS SUITE. initializeStoreScene resets
+  // bb_arrangement to herringbone on EVERY boot unless bb_arrangement_user is
+  // set — a guard against screenshot tooling writing the key on the same origin
+  // and silently re-laying the store between launches.
+  //
+  // The console's enforcement is exactly such a write. So an owner picked
+  // Straight, the console saved it, the key went out on every load, and the
+  // store rebuilt herringbone anyway — with nothing anywhere reporting a
+  // problem. A setting that saves and does nothing is the worst kind of broken.
+  const keys = policyKeys({ ...DEFAULT_POLICY, settings: { bb_arrangement: 'straight' } });
+  assert.equal(keys.bb_arrangement, 'straight');
+  assert.equal(keys.bb_arrangement_user, '1', 'without this the store stomps it back to herringbone');
+});
+
+test('the marker is not emitted when the arrangement is untouched', () => {
+  // Absence still has to mean "no opinion". Emitting the marker alone would
+  // pin whatever the viewer last had, which is the opposite of no opinion.
+  const keys = policyKeys({ ...DEFAULT_POLICY, settings: { bb_theme: 'bb-2010' } });
+  assert.equal(keys.bb_arrangement_user, undefined);
+});
+
+test('the marker is not something the console can be asked to set directly', () => {
+  // It is a consequence of enforcing bb_arrangement, not a setting. Accepting
+  // it as one would let a policy pin a viewer's own arrangement choice.
+  const { settings, errors } = validateSettings({ bb_arrangement_user: '1' });
+  assert.deepEqual(settings, {});
+  assert.equal(errors.length, 1);
+});
