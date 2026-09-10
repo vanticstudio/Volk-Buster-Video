@@ -59,6 +59,16 @@ export function proxyToApp(
   req: IncomingMessage,
   res: ServerResponse,
   appOrigin: string,
+  /**
+   * Inline JS to run before the app's own module script.
+   *
+   * This is how a viewer arrives at a store that is already connected to Plex
+   * instead of the "pick a distributor" terminal. It must be INLINE and it must
+   * be injected into the HTML rather than fetched: the app reads its connection
+   * out of localStorage synchronously at module-evaluation time, so anything
+   * asynchronous lands after the store has already decided it is unconfigured.
+   */
+  bootstrap?: string,
 ): void {
   const target = new URL(req.url || '/', appOrigin);
 
@@ -72,8 +82,40 @@ export function proxyToApp(
       headers: { ...sanitise(req.headers), host: target.host },
     },
     (upRes) => {
-      res.writeHead(upRes.statusCode || 502, sanitise(upRes.headers));
-      upRes.pipe(res);
+      const type = String(upRes.headers['content-type'] || '');
+      const isHtml = type.includes('text/html');
+
+      // Everything that is not the document streams straight through. The store
+      // serves 100MB+ of textures, models and HDR skies, and buffering those to
+      // rewrite them would put a per-request memory ceiling on how many viewers
+      // this can serve at once. Only the HTML is small enough to hold.
+      if (!bootstrap || !isHtml) {
+        res.writeHead(upRes.statusCode || 502, sanitise(upRes.headers));
+        upRes.pipe(res);
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      upRes.on('data', (c: Buffer) => chunks.push(c));
+      upRes.on('end', () => {
+        let body = Buffer.concat(chunks).toString('utf8');
+        const tag = `<script>${bootstrap}</script>`;
+        // After <head> so it runs before any module script the document loads.
+        // If the marker is missing the document is not what we think it is, so
+        // pass it through untouched rather than guessing where to splice.
+        const at = body.indexOf('<head>');
+        if (at >= 0) body = body.slice(0, at + 6) + tag + body.slice(at + 6);
+
+        const headers = sanitise(upRes.headers);
+        // The body changed length; a stale content-length truncates the page.
+        delete headers['content-length'];
+        headers['content-length'] = String(Buffer.byteLength(body));
+        // It now carries a per-viewer token, so it must never be cached by a
+        // proxy or served to a second person.
+        headers['cache-control'] = 'private, no-store';
+        res.writeHead(upRes.statusCode || 502, headers);
+        res.end(body);
+      });
     },
   );
 

@@ -36,6 +36,7 @@ import { assertWritable } from './owner-keys.ts';
 import { signInPage, signedInPage } from './signin-page.ts';
 import { proxyToApp } from './app-proxy.ts';
 import { setupPage } from './setup-page.ts';
+import { connectionForViewer, connectionBootstrapScript, type StoreConnection } from './plex-connection.ts';
 import { saveInstance, isConfigured, type InstanceSecrets } from './bootstrap.ts';
 
 const COOKIE = 'hv_session';
@@ -197,6 +198,26 @@ export function createFrontDoor(
     plexMachineId: cfg.plexMachineId || null,
     plexClientId: process.env.PLEX_CLIENT_ID || 'volkbuster-front-door',
   };
+  /**
+   * Resolved Plex connections, per session.
+   *
+   * Resolving one costs a plex.tv round trip, and it is needed on every
+   * document load. Without a cache a viewer walking around the store would
+   * re-query plex.tv on each navigation, which is slow for them and rude to
+   * Plex. Short-lived so a server address that changes — a new LAN IP, relay
+   * coming or going — is picked up without a sign-out.
+   */
+  const connCache = new Map<string, { conn: StoreConnection | null; at: number }>();
+  const CONN_TTL_MS = 10 * 60_000;
+
+  async function connectionFor(sid: string, viewerToken: string): Promise<StoreConnection | null> {
+    const hit = connCache.get(sid);
+    if (hit && now() - hit.at < CONN_TTL_MS) return hit.conn;
+    const conn = await connectionForViewer(viewerToken, cfg.plexMachineId, identity);
+    connCache.set(sid, { conn, at: now() });
+    return conn;
+  }
+
   /** Cleared once a setup code is accepted, so the code is single-use. */
   let setupClaimed = false;
   /** The Plex token of whoever is completing setup, held only until they pick. */
@@ -448,7 +469,12 @@ export function createFrontDoor(
       const session = currentSession(req);
 
       if (path === '/auth/signout' && req.method === 'POST') {
-        if (session) db.deleteSession(session.payload.sid);
+        if (session) {
+          db.deleteSession(session.payload.sid);
+          // Otherwise a token for a signed-out session lingers in memory and
+          // would be handed to the next holder of that session id.
+          connCache.delete(session.payload.sid);
+        }
         clearSessionCookie(req, res);
         // The holding page signs out with a plain <form>, so a browser needs a
         // redirect; fetch callers still get JSON.
@@ -518,7 +544,20 @@ export function createFrontDoor(
       // NOTE this proxies ONE SHARED store to every viewer. Per-user rendering
       // instances (Phase 2) replace it; until then everyone drives the same
       // camera and rendering happens in the viewer's own browser.
-      proxyToApp(req, res, cfg.appOrigin);
+      // Only the DOCUMENT is rewritten. Assets stream through untouched, and
+      // resolving a connection costs a plex.tv round trip we should not pay on
+      // every texture.
+      let bootstrap: string | undefined;
+      if ((req.headers.accept || '').includes('text/html')) {
+        const conn = await connectionFor(payload.sid, token);
+        // No connection is not an error. It means this viewer can sign in but
+        // cannot currently reach the server — sharing revoked between checks, or
+        // Plex not answering. The store then shows its own setup terminal, which
+        // is a worse experience than a stocked store and a much better one than
+        // a blank screen.
+        if (conn) bootstrap = connectionBootstrapScript(conn, payload.uid);
+      }
+      proxyToApp(req, res, cfg.appOrigin, bootstrap);
       return;
     } catch (err) {
       // Never leak an internal error to a public caller: the message could name
