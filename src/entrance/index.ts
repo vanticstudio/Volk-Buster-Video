@@ -648,17 +648,25 @@ export class EntranceCheckout implements StoreFixture {
     // vestibule glazing (z >= 8.6) and the store-side door's swing. The chute
     // protrudes into walkable floor now, so its footprint joins the clerk nav
     // rects below.
-    // A RETURN TAPES chute belongs to the VHS-rental store — the tape eras
-    // (1990 / 1993 / 2000), not the DVD-era 2010. And it belongs to a store
-    // big enough to bolt one to: it is chain counter furniture, so a FORMAT
-    // can decline it (StoreFormatSpec.counterDressing). Mom-and-pop does —
-    // its whole counter is a 6 ft desk, and a drop box standing off the end
-    // of it was wider than the desk was deep (GH #112). Every consumer of the
-    // return ritual already guards on hasReturnSlot(), because the 2010 store
-    // has had none since the theme shipped; tapes still come back, they just
-    // come back without the drop animation.
-    const chuteTheme = getActiveTheme();
-    if (chuteTheme.defaultMedium === 'vhs' && activeStoreFormat().counterDressing) {
+    // EVERY ERA GETS A RETURN CHUTE (owner, 2026-09-10). It used to be tape
+    // eras only, which left the 2010 store with no drop ritual at all — you
+    // walked back in and your rentals simply blinked out of your hands. Real
+    // stores kept their drop box through the DVD years; the format changed,
+    // the walk-in return did not.
+    //
+    // Nothing had to be reshaped for it. The chute is parametric boxes off the
+    // counter band, its colours come from the theme palette, and the slot was
+    // already sized to the case's LONG edge (0.73 ft) — a DVD case is the same
+    // 0.667 ft tall and half the thickness, so it posts through the existing
+    // opening with room to spare. Only the sign's middle word is era-specific,
+    // and return-slot.ts picks that off the active medium.
+    //
+    // The FORMAT half of this gate stays: the chute is chain counter furniture
+    // grown out of the band, so a format with no band to grow it from must
+    // still be able to decline (StoreFormatSpec.counterDressing — mom-and-pop
+    // did, its whole counter being a 6 ft desk, GH #112). Consumers still guard
+    // on hasReturnSlot() for exactly that reason.
+    if (activeStoreFormat().counterDressing) {
       const zBackC = backZ - 0.1; // counter.ts's band outline datum
       // Mirrored from return-slot.ts's CHUTE_BACK, the same way BAND_H is
       // mirrored from counter.ts below — those files stay layout-agnostic.

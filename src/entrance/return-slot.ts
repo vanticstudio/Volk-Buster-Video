@@ -1,4 +1,4 @@
-// Tape-return chute: the classic "RETURN TAPES HERE" drop slot —
+// The return chute: the classic "RETURN TAPES HERE" drop slot —
 // a blue bumped-out section grown off the checkout counter's band, INSIDE the
 // store. It sits on the band's right-shoulder face, immediately on your left
 // as you step out of the vestibule's store-side door: the first thing a
@@ -7,10 +7,13 @@
 // 2026-07-30 off the 1993 macro f0068, see the measured block below) and a
 // horizontal slot a little longer than a VHS case in the middle.
 //
-// Tape eras only: EntranceCheckout gates construction on the active theme's
-// defaultMedium, so the DVD-era store
-// never build it. Colors come straight from the theme palette (counterTop
-// blue body + secondary gold lettering), matching the counter it grows from.
+// EVERY ERA HAS ONE (owner, 2026-09-10). It was tape-eras-only, which left the
+// 2010 store with no return ritual at all. Nothing needed reshaping: the slot
+// was already cut for the case's long edge and a DVD case is the same height
+// and half the thickness, so only the sign's middle word changes (RETURN_NOUN
+// below). EntranceCheckout still gates on the store FORMAT having a counter
+// band to grow the chute out of. Colors come straight from the theme palette
+// (counterTop blue body + secondary gold lettering), matching that counter.
 //
 // Geometry is built in the group's LOCAL frame — chute centred on x=0, slot
 // face toward local +Z, back tucked into the band at local z≈0 — and the
@@ -95,6 +98,25 @@ const GAP_TEXT_ARROW = 0.65, LEAD_OUT = 0.43;
 const ARROW = { headW: 0.95, headH: 0.83, stemW: 0.53, top: 0.01, len: 0.89 };
 const ARROW_LEAD = ARROW;
 const ARROW_TRAIL = ARROW;
+
+/**
+ * The sign's middle word, per era.
+ *
+ * The only thing on this chute that is actually format-specific — the body,
+ * the slot and the whole drop ritual are medium-agnostic, and a DVD case posts
+ * through the VHS-sized opening with room to spare.
+ *
+ * 'MOVIES' rather than 'DVDS' for the disc era: it is what the late stores
+ * actually printed, it does not date the plate to one disc format the moment
+ * Blu-ray arrives, and it does not exclude the games the store also rents.
+ * The plate ink-justifies from the face's REAL measured metrics (see the
+ * solve below), so a word of any length lays out correctly — change these
+ * freely.
+ */
+const RETURN_NOUN: Record<string, string> = {
+  vhs: 'TAPES',
+  dvd: 'MOVIES',
+};
 
 // Drop ritual timing.
 const DROP_DUR = 1500;     // one case: toss/tip (~58%) then slide into the dark
@@ -270,7 +292,7 @@ export class ReturnSlot {
     c.fillStyle = goldHex;
     c.textAlign = 'left';
     c.textBaseline = 'alphabetic';
-    const words = ['RETURN', 'TAPES', 'HERE'];
+    const words = ['RETURN', RETURN_NOUN[CASE_MEDIUM] ?? 'MOVIES', 'HERE'];
     const face = (px: number) => `700 ${px}px Helvetica, Arial, sans-serif`;
     // Ink-justify: probe the face's REAL metrics (asset-fidelity rule — never
     // assume a cap/em ratio), then solve the cap height that makes
