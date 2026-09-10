@@ -38,7 +38,8 @@
     "test:preview": "node --experimental-strip-types --test tests/preview-middleware.test.ts",
     "test:proxyinject": "node --experimental-strip-types --test tests/proxy-injection.test.ts",
     "test:viewport": "node --experimental-strip-types --test tests/viewport.test.ts",
-    "test:adminpolicy": "node --experimental-strip-types --test tests/admin-policy.test.ts"
+    "test:adminpolicy": "node --experimental-strip-types --test tests/admin-policy.test.ts",
+    "test:unsupportedviewport": "node --experimental-strip-types --test tests/unsupported-viewport.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

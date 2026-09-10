@@ -101,6 +101,7 @@ import { brandString, loadBrandPack } from './brand-pack';
 import type { StoreScene } from './three-scene';
 import { InputManager, type InputCallbacks } from './input';
 import { installStoreTouchControls, isTouchInputActive, touchHUDText, touchMovieHUDText } from './store-touch';
+import { watchUnsupportedViewport } from './unsupported-viewport';
 import { triggerHostedWelcome, isWelcomeActive, dismissWelcome, welcomeHUDText } from './store-welcome';
 import { showClerkToast } from './carried-tapes';
 import { initSharedPlace } from './shared-place-ui';
@@ -4438,12 +4439,32 @@ async function main() {
   else checkCredentialsAndLoad();
 }
 
+/**
+ * BEFORE ANYTHING ELSE ON A PHONE. The store is a walkable 3D shop with a
+ * remote-control scheme and ~100MB of textures; a handset is not a supported
+ * way in, and the honest answer is to say so rather than serve something that
+ * technically renders and is miserable. Walling first is the point — there is
+ * no reason to spend a phone's battery and data allowance booting a store the
+ * visitor is about to be told they cannot use. See unsupported-viewport.ts for
+ * why "is this a phone" is two signals and not one.
+ */
+function bootUnlessUnsupported(): void {
+  // main is handed over so the wall can boot LATE: if it goes up, boot is
+  // skipped entirely, and taking it down on a rotate would otherwise leave a
+  // blank page with nothing built behind it.
+  if (watchUnsupportedViewport(main)) {
+    console.log('[System] Mobile viewport — the store is not booted here.');
+    return;
+  }
+  main();
+}
+
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', () => {
-    main();
+    bootUnlessUnsupported();
   });
 } else {
-  main();
+  bootUnlessUnsupported();
 }
 
 // Expose modal/settings triggers globally for diegetic navigation.
