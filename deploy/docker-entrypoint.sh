@@ -45,4 +45,7 @@ while [ "$i" -lt 60 ]; do
 done
 
 echo "[entrypoint] front door -> 0.0.0.0:${PORT} (the only public port)"
-exec node --experimental-strip-types server/index.ts
+# --disable-warning: node prints an ExperimentalWarning for both type
+# stripping and node:sqlite on every start. Both are known and deliberate,
+# and they bury the setup banner an operator is reading the log FOR.
+exec node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts
