@@ -118,21 +118,49 @@ function readCookie(req: IncomingMessage, name: string): string | null {
 }
 
 /**
- * `Secure` is unconditional. The only way to reach this service is through the
- * Cloudflare Tunnel, which is HTTPS, so a cookie that would also travel over
- * plain HTTP has no legitimate use here.
+ * Is this request actually running over TLS?
  *
+ * `Secure` used to be unconditional here, on the reasoning that the only way in
+ * was an HTTPS tunnel. That was wrong, and it produced an infinite sign-in
+ * loop: over plain HTTP on a LAN address the browser SILENTLY DISCARDS a Secure
+ * cookie, so authentication succeeded server-side, the cookie never survived,
+ * and the next request arrived with no session — back to the sign-in page,
+ * forever, with nothing in any log to say why.
+ *
+ * (http://localhost is exempt in browsers, which is why it never showed up in
+ * local testing. http://192.168.x.x is not.)
+ *
+ * `x-forwarded-proto` first, because behind cloudflared or any reverse proxy
+ * the connection to this process is plain HTTP even though the viewer's is
+ * HTTPS — trusting the socket alone would drop Secure on exactly the deployment
+ * that needs it most.
+ */
+function isSecureRequest(req: IncomingMessage): boolean {
+  const header = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(header) ? header[0] : header;
+  // A chain of proxies appends, so the ORIGINAL scheme is the first entry.
+  if (typeof proto === 'string' && proto.length) {
+    return proto.split(',')[0].trim().toLowerCase() === 'https';
+  }
+  return Boolean((req.socket as { encrypted?: boolean }).encrypted);
+}
+
+/**
  * `SameSite=Lax` rather than Strict: the Plex sign-in sends the viewer to
  * app.plex.tv and back, and Strict would withhold the cookie on that return
  * navigation, so a freshly signed-in viewer would land looking signed out.
  */
-function setSessionCookie(res: ServerResponse, token: string, maxAgeMs: number): void {
-  res.setHeader('set-cookie',
-    `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}`);
+function cookieAttrs(req: IncomingMessage): string {
+  return `HttpOnly;${isSecureRequest(req) ? ' Secure;' : ''} SameSite=Lax; Path=/`;
 }
 
-function clearSessionCookie(res: ServerResponse): void {
-  res.setHeader('set-cookie', `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+function setSessionCookie(req: IncomingMessage, res: ServerResponse, token: string, maxAgeMs: number): void {
+  res.setHeader('set-cookie',
+    `${COOKIE}=${encodeURIComponent(token)}; ${cookieAttrs(req)}; Max-Age=${Math.floor(maxAgeMs / 1000)}`);
+}
+
+function clearSessionCookie(req: IncomingMessage, res: ServerResponse): void {
+  res.setHeader('set-cookie', `${COOKIE}=; ${cookieAttrs(req)}; Max-Age=0`);
 }
 
 async function readJsonBody(req: IncomingMessage, limitBytes = 64 * 1024): Promise<unknown> {
@@ -411,7 +439,7 @@ export function createFrontDoor(
         db.upsertUser(account.id, account.username, owner, now());
         const sid = db.createSession(account.id, token, owner, now(), body?.aspect);
         const exp = now() + cfg.sessionTtlMs;
-        setSessionCookie(res, signSession({ sid, uid: account.id, owner, exp }, cfg.sessionSecret), cfg.sessionTtlMs);
+        setSessionCookie(req, res, signSession({ sid, uid: account.id, owner, exp }, cfg.sessionSecret), cfg.sessionTtlMs);
         return json(res, 200, { ok: true, username: account.username, owner });
       }
 
@@ -421,7 +449,7 @@ export function createFrontDoor(
 
       if (path === '/auth/signout' && req.method === 'POST') {
         if (session) db.deleteSession(session.payload.sid);
-        clearSessionCookie(res);
+        clearSessionCookie(req, res);
         // The holding page signs out with a plain <form>, so a browser needs a
         // redirect; fetch callers still get JSON.
         if ((req.headers.accept || '').includes('text/html')) {
@@ -442,7 +470,7 @@ export function createFrontDoor(
 
       const { payload, token } = session;
       if (!(await revalidate(payload.sid, payload.uid, token))) {
-        clearSessionCookie(res);
+        clearSessionCookie(req, res);
         return json(res, 403, { error: 'your access to this Plex library was removed' });
       }
 

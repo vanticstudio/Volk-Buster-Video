@@ -392,3 +392,56 @@ test('the status page is still served by the front door, not proxied', async () 
   const body = await (await realFetch(`${base}/whoami`, { headers: { cookie: cookie! } })).text();
   assert.match(body, /You&#39;re in|You're in/);
 });
+
+// ─── The cookie has to survive the transport it is actually on ──────────────
+//
+// These exist because of a real bug: `Secure` was unconditional, so over plain
+// HTTP on a LAN address the browser silently discarded the session cookie and
+// sign-in looped forever with nothing in any log to explain it. Browsers exempt
+// http://localhost, which is why local testing never caught it.
+
+test('over plain HTTP the cookie is NOT marked Secure', async () => {
+  // Otherwise the browser drops it and the viewer loops on the sign-in page.
+  const res = await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const { cookie } = await signIn();
+  assert.ok(cookie, 'a session cookie must be issued');
+  const raw = cookie!;
+  assert.doesNotMatch(raw, /Secure/i, 'Secure over http makes the cookie unusable');
+});
+
+test('behind a TLS-terminating proxy the cookie IS marked Secure', async () => {
+  // cloudflared and every reverse proxy speak plain HTTP to this process, so
+  // the socket looks insecure even when the viewer is on HTTPS. Trusting the
+  // socket alone would drop Secure on exactly the deployment that needs it.
+  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const res = await realFetch(`${base}/auth/claim`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+    body: JSON.stringify({ id: 1234 }),
+  });
+  assert.match(res.headers.get('set-cookie') || '', /Secure/);
+});
+
+test('a proxy chain is read from its first entry', async () => {
+  // "https, http" means the ORIGINAL request was HTTPS; reading the last hop
+  // would get this exactly backwards.
+  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const res = await realFetch(`${base}/auth/claim`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https, http' },
+    body: JSON.stringify({ id: 1234 }),
+  });
+  assert.match(res.headers.get('set-cookie') || '', /Secure/);
+});
+
+test('the cookie is always HttpOnly and SameSite=Lax, whatever the transport', async () => {
+  // HttpOnly keeps it away from scripts; Lax rather than Strict because the
+  // Plex sign-in returns the viewer here by navigation and Strict would
+  // withhold the cookie on that hop.
+  const { cookie } = await signIn();
+  const res = await realFetch(`${base}/auth/signout`, { method: 'POST', headers: { cookie: cookie! } });
+  const raw = res.headers.get('set-cookie') || '';
+  assert.match(raw, /HttpOnly/);
+  assert.match(raw, /SameSite=Lax/);
+});
