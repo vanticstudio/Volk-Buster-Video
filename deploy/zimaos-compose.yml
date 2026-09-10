@@ -1,0 +1,84 @@
+# VolkBuster Video — ZimaOS "Install Custom App" → YAML tab.
+#
+# Paste this whole file into the YAML tab, fill the three secrets, Install.
+#
+# BUILD THE IMAGE FIRST. ZimaOS pulls images; it cannot build from a Dockerfile,
+# and there is no published image until you push a v*.*.* tag and make the GHCR
+# package public. Over SSH to the NAS:
+#
+#   git clone https://github.com/<you>/volkbuster-video /DATA/volkbuster-src
+#   cd /DATA/volkbuster-src
+#   docker build -t volkbuster-video:latest .
+#
+# Then this file finds it locally — no registry involved. Once you do publish a
+# tag, swap `image:` for ghcr.io/<you>/volkbuster-video:latest and ZimaOS will
+# pull updates instead.
+#
+# ONE PUBLIC PORT. The store app runs on loopback inside the container and is
+# reachable only through the front door, which checks a Plex session first. The
+# store has no authentication of its own, so do NOT add a mapping for 1420 —
+# that would serve your whole library to anyone who found the port.
+
+name: volkbuster
+
+services:
+  volkbuster:
+    image: volkbuster-video:latest
+    container_name: volkbuster
+    restart: unless-stopped
+    init: true
+
+    ports:
+      - "3355:3355"
+
+    environment:
+      # ── Required. The container refuses to start without these. ────────────
+      #
+      # Your Plex server's clientIdentifier, from:
+      #   https://plex.tv/api/v2/resources?X-Plex-Token=YOUR_TOKEN
+      # Everyone whose Plex account can reach THIS server gets in; nobody else.
+      PLEX_MACHINE_ID: PASTE_YOUR_MACHINE_ID
+      # Generate each of these with:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      # or, if the NAS has no node:  openssl rand -hex 32
+      SESSION_SECRET: PASTE_A_64_CHAR_HEX_STRING
+      TOKEN_ENCRYPTION_KEY: PASTE_A_DIFFERENT_64_CHAR_HEX_STRING
+
+      # ── Optional ───────────────────────────────────────────────────────────
+      PORT: "3355"
+      APP_PORT: "1420"
+      DATABASE_PATH: /data/store.db
+      SESSION_TTL_MS: "2592000000"    # 30 days before a fresh Plex sign-in
+      REVALIDATE_AFTER_MS: "86400000" # revocation window: 1 day
+
+    volumes:
+      # Sessions, per-user store settings and encrypted Plex tokens.
+      # Back this up like a credential store, because that is what it is.
+      - /DATA/AppData/volkbuster/data:/data
+      # Drop a logo.svg in here and restart to rebrand — no rebuild needed.
+      - /DATA/AppData/volkbuster/brand:/app/dist/user-assets
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3355/healthz"]
+      interval: 30s
+      timeout: 5s
+      # First boot builds the 3D scene before the gate opens. Do not shorten
+      # this — a shorter period marks the container unhealthy mid-build and
+      # ZimaOS will restart it in a loop that never completes a boot.
+      start_period: 40s
+      retries: 3
+
+    # ZimaOS app-store metadata. Harmless to other Docker hosts, which ignore
+    # unknown x- keys.
+    x-casaos:
+      author: self
+      category: Media
+      main: volkbuster
+      port_map: "3355"
+      scheme: http
+      index: /
+      description:
+        en_us: >-
+          Your Plex library as a walkable 1990s video rental store. Access is
+          gated on Plex library sharing: anyone you have shared a library with
+          can sign in, and nobody else can.
