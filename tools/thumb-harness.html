@@ -2,12 +2,17 @@
 <!--
   Cover-thumbnail harness.
 
-  The settings drawer shows a 480x270 preview for each `bb_cover_*` value, and
-  those previews are box wraps carrying the house wordmark — so they go stale
-  the moment a fork rebrands. Upstream generated them with
-  tools/gen_setting_thumbs.mjs, which is absent from this checkout, so this page
-  plus tools/gen-cover-thumbs.mjs replaces it for the four covers that actually
-  show the brand.
+  The settings drawer previews each `bb_cover_*` value with a 480x270 PNG in
+  public/setting-thumbs/, and those previews are box wraps carrying the house
+  wordmark — so they go stale the moment a fork rebrands. Upstream generated
+  them with tools/gen_setting_thumbs.mjs, which is absent from this checkout;
+  this page plus tools/gen-cover-thumbs.mjs replaces it.
+
+  It renders from COVER_VARIANTS — the same table the settings drawer builds its
+  cycle from — rather than a list written out here. That is deliberate: the
+  hardcoded version missed the DVD 'blue' variant entirely, so one option in the
+  drawer had no preview at all. Driving both from one source means a variant
+  cannot be offered without a thumbnail again.
 
   Served by `vite dev` so the TypeScript modules resolve as-is. Driven by
   Puppeteer; not part of the app and never shipped in a build.
@@ -18,8 +23,10 @@
 </head>
 <body>
 <script type="module">
+import { COVER_VARIANTS } from '/src/video-case.ts';
+import { ensureWrapFontsLoaded } from '/src/logo-wrap.ts';
 import { getActiveLogoSpec } from '/src/logo-spec.ts';
-import { buildCustomTemplateWrap, buildCustomTicketWrap, ensureWrapFontsLoaded } from '/src/logo-wrap.ts';
+import { getActiveTheme } from '/src/themes.ts';
 import { bundledFontsReady } from '/src/bundled-fonts.ts';
 
 const W = 480, H = 270;
@@ -27,10 +34,10 @@ const W = 480, H = 270;
 /**
  * Fit a wrap canvas into the thumbnail frame.
  *
- * "Contain", not "cover": a wrap is much wider than 16:9 and cropping it would
- * cut the wordmark, which is the entire subject of these four thumbnails. The
- * backdrop matches the drawer's own surround so the letterboxing reads as
- * frame rather than as a rendering fault.
+ * "Contain", not "cover": a wrap is far wider than 16:9 and cropping it would
+ * cut the wordmark, which is the entire subject of these thumbnails. The
+ * backdrop matches the drawer's surround so the letterboxing reads as frame
+ * rather than as a rendering fault.
  */
 function frame(src) {
   const out = document.createElement('canvas');
@@ -47,23 +54,27 @@ function frame(src) {
 
 async function run() {
   // The wrap painters resolve their face through the brand font stack, and a
-  // face that lands late bakes the wrong glyph metrics into the canvas
-  // permanently — same ordering rule the real boot follows.
+  // face landing late bakes the wrong glyph metrics into the canvas
+  // permanently — the same ordering rule the real boot follows.
   await bundledFontsReady();
-  const spec = getActiveLogoSpec();
-  await new Promise((r) => ensureWrapFontsLoaded(spec, r));
+  await new Promise((r) => ensureWrapFontsLoaded(getActiveLogoSpec(getActiveTheme()), r));
 
   const out = {};
-  for (const medium of ['vhs', 'dvd']) {
-    out[`bb_cover_${medium}--standard`] = frame(buildCustomTemplateWrap(spec, medium)).toDataURL('image/png');
-    out[`bb_cover_${medium}--ticket`] = frame(buildCustomTicketWrap(spec, medium)).toDataURL('image/png');
+  for (const medium of Object.keys(COVER_VARIANTS)) {
+    for (const variant of COVER_VARIANTS[medium]) {
+      // Only procedurally drawn wraps are ours to regenerate; a user-supplied
+      // drop-in cover image is theirs and is left alone.
+      if (typeof variant.procedural !== 'function') continue;
+      const canvas = variant.procedural(medium);
+      out[`bb_cover_${medium}--${variant.id}`] = frame(canvas).toDataURL('image/png');
+    }
   }
   window.__thumbs = out;
   document.title = 'ready';
 }
 
 run().catch((e) => {
-  window.__thumbError = String(e && e.stack || e);
+  window.__thumbError = String((e && e.stack) || e);
   document.title = 'error';
 });
 </script>

@@ -14,7 +14,7 @@ import {
 import agencyFontUrl from './assets/sairasemicondensed-medium.ttf';
 import { BB_ARCHIVO_BLACK, bundledFontsReady } from './bundled-fonts';
 import { createCategoryPlate1993Texture } from './fixtures/category-plate-1993';
-import { activeStoreFormat, isMomAndPop } from './store-format';
+import { activeStoreFormat } from './store-format';
 
 
 // ─── Anisotropic-filtering budget ────────────────────────────────────────────
@@ -532,11 +532,6 @@ export function createCategorySignTexture(
   // citations there). Other themes keep the muted rectangles + plain label.
   if (ribbon && dressing93Active()) {
     return createCategoryPlate1993Texture(categoryName, faceAspect);
-  }
-
-  // Mom-and-pop format signs in its own hand-lettered card idiom (GH #140).
-  if (!palette && isMomAndPop()) {
-    return createHandLetteredSignTexture(categoryName, undefined, faceAspect, 'card');
   }
 
   const canvas = document.createElement('canvas');

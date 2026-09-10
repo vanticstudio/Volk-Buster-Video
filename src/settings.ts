@@ -43,7 +43,6 @@ import { buildEmblemEditorRow } from './emblem-editor';
 import { brandFontChoices } from './brand-fonts';
 import { buildControlsHelpPanel } from './controls-help';
 import { registerStoreFormatSetting } from './store-format-setting';
-import { STORE_FORMATS, STORE_FORMAT_KEY } from './store-format';
 import { loadMediaReleasePin, saveMediaReleasePin } from './media-release-date';
 import { formatUnlockLabel, makeRentalRecord, rentalCapacityAt } from './rental-clock';
 import { activeProviderKind } from './providers/provider-registry';
@@ -482,16 +481,10 @@ export function registerCoreSettings(): void {
   // back (onChange detaches the follow) instead of losing a silent fight
   // with the funnel one rebuild later.
   const eraFollowOn = (): boolean => !!loadMediaReleasePin()?.matchEra;
-  // ONE store choice (owner ruling 2026-08-23): the mom-and-pop FORMAT is an
-  // entry in this cycle, mutually exclusive with the era themes, instead of a
-  // separate row tucked away on the Building & Storefront sub-page — a format
-  // brings its own building, floor plan and finishes, so an era theme and the
-  // little shop were never really independent knobs. bb_store_format stays the
-  // load-bearing key (store-layout.ts derives its geometry from it at module
-  // evaluation — see store-format.ts's header); this row DRIVES it via
-  // onChange, and a small reconciliation at the bottom of registerCoreSettings
-  // keeps the two keys in lockstep for stores that set either one by hand
-  // (harness --set, old installs, the service-mode row).
+  // Upstream put the mom-and-pop FORMAT in this cycle alongside the eras, so
+  // one row chose both a building and a fit-out. With that format removed every
+  // entry here is an era of the single store format, which is why the row no
+  // longer writes bb_store_format and a change no longer forces a reload.
   registerSetting({
     key: 'bb_theme',
     label: 'Store Theme',
@@ -499,7 +492,6 @@ export function registerCoreSettings(): void {
     group: 'Store Look',
     values: [
       ...Object.values(THEMES).map((t) => ({ id: t.id, label: t.name })),
-      { id: 'mom-and-pop', label: STORE_FORMATS['mom-and-pop'].name },
     ],
     default: 'bb-1990',
     applyMode: 'rebuild-scene',
@@ -507,17 +499,9 @@ export function registerCoreSettings(): void {
     // to fit whole, so the "detaches" half is never truncated away.
     hint: () => eraFollowOn()
       ? 'Following the Media Release Date pin. A change detaches it.'
-      : 'Era styling for the store; Mom & pop is its own building.',
+      : 'Era styling for the store.',
     valueLabel: (label) => (eraFollowOn() ? `${label} (AUTO)` : label),
-    onChange: (value) => {
-      // Keep the store FORMAT in lockstep with the pick: Mom & pop IS the
-      // mom-and-pop format, every era entry is the corporate box. (getActiveTheme
-      // resolves the 'mom-and-pop' id to the default era's finishes, and the
-      // format's own overrides — wood, shag, its building — do the rest.)
-      if (typeof localStorage !== 'undefined') {
-        if (value === 'mom-and-pop') localStorage.setItem(STORE_FORMAT_KEY, 'mom-and-pop');
-        else localStorage.removeItem(STORE_FORMAT_KEY);
-      }
+    onChange: () => {
       const pin = loadMediaReleasePin();
       if (!pin?.matchEra) return;
       saveMediaReleasePin({ ...pin, matchEra: false });
@@ -611,22 +595,10 @@ export function registerCoreSettings(): void {
   // the room, and several rows below it (Shelf Arrangement, Corner Step) are
   // things a given format may not offer at all. See store-format-setting.ts.
   registerStoreFormatSetting();
-  // Reconcile bb_theme and bb_store_format at boot (see the Store Theme row's
-  // header comment): either key can be set alone by hand (harness --set, an
-  // install predating the merged row, the service-mode format row) — whenever
-  // ONE of them says mom-and-pop, both do. Runs after the row registrations so
-  // the drawer renders the reconciled truth on first open. The page already
-  // BUILT from the pre-reconcile bb_store_format, which is unchanged for every
-  // path except a hand-edited bb_theme — that one becomes right on next load.
-  if (typeof localStorage !== 'undefined') {
-    const fmt = localStorage.getItem(STORE_FORMAT_KEY);
-    const theme = localStorage.getItem('bb_theme');
-    if (fmt === 'mom-and-pop' && theme !== 'mom-and-pop') {
-      localStorage.setItem('bb_theme', 'mom-and-pop');
-    } else if (theme === 'mom-and-pop' && fmt !== 'mom-and-pop') {
-      localStorage.setItem(STORE_FORMAT_KEY, 'mom-and-pop');
-    }
-  }
+  // Upstream reconciled bb_theme against bb_store_format here, because the two
+  // keys had to agree about mom-and-pop. With one format left there is nothing
+  // to reconcile: bb_theme names an era and bb_store_format has one legal
+  // value, which resolveStoreFormatId already falls back to.
 
   registerSetting({
     key: 'bb_arrangement',

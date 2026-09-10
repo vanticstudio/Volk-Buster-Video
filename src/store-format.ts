@@ -12,12 +12,12 @@
 //                  aisle fields flanking a wide central walkway, 13.5 ft ceiling,
 //                  five-tier gondolas, floor displays, a wall of New Releases.
 //
-//   mom-and-pop  — the cramped neighbourhood store (GH #33). Straight runs only,
-//                  packed at a 4 ft aisle pitch across ONE field with no central
-//                  walkway; wood shelving that runs floor-to-ceiling under a
-//                  9 ft ceiling; brown shag on the floor; no floor displays and
-//                  no New Releases wall — the walls belong to the regular
-//                  library and new releases get at most one run of their own.
+// That is the only format this build carries. Upstream also shipped
+// 'mom-and-pop', a cramped neighbourhood store with tighter runs, taller wood
+// shelving and a standalone desk; it was removed on request. Field comments
+// below still cite its numbers, deliberately — they are what shows the useful
+// RANGE of each field, and they are the reference for anyone adding a second
+// fit-out later.
 //                  Behind a beaded curtain at the back is the small curtained-off
 //                  section every one of these stores had.
 //
@@ -41,13 +41,13 @@
 // scene rebuild, and nothing in the app is allowed to mutate the active format
 // in place.
 //
-// The harness gets this for free: harness-params.ts seeds localStorage from the
-// URL inside harness-boot.ts, strictly before `import('./harness')` pulls in the
-// scene graph — so `--set bb_store_format=mom-and-pop` lands before store-layout
-// evaluates. Same contract as `?set=bb_brand_pack=<id>`.
+// Anything that wants to choose a format must therefore write
+// localStorage BEFORE the module graph is imported — which is exactly what the
+// front door's instance seeding does when it hydrates a viewer's config ahead
+// of the app's own module body.
 import type { ArrangementId } from './store-layout.ts';
 
-export type StoreFormatId = 'corporate' | 'mom-and-pop';
+export type StoreFormatId = 'corporate';
 
 /** Ground-plan of the checkout counter this format builds (see entrance/counter.ts). */
 export type CounterShape = 'shield' | 'usquare' | 'desk';
@@ -463,123 +463,17 @@ const CORPORATE: StoreFormatSpec = {
   counterDressing: true,
 };
 
-/**
- * The neighbourhood store (GH #33). Everything is compressed.
- *
- * The shelf ladder is the one number worth reading twice: NINE tiers at the
- * 10.5 in wall-shelf pitch, from 0.42 ft to 7.42 ft. A case leaning back on the
- * top board tops out at 7.42 + CASE_HEIGHT·cos(LEAN) ≈ 8.08 ft, the frame
- * crowns at 8.2, and the ceiling is at 9.0 — so the runs genuinely reach the
- * ceiling with a hand's width of air over them, which is what "floor-to-ceiling"
- * means in a room this short. Nine tiers instead of five is also why one unit
- * face holds 108 cases here against the chain's 60: a cramped store carries its
- * stock UP, not out.
- */
-const MOM_AND_POP: StoreFormatSpec = {
-  id: 'mom-and-pop',
-  name: 'Mom & pop',
-
-  forcedArrangement: 'straight',
-  singleField: true,
-  centerWalkway: 0,
-  // 2.6 ft off the side walls: enough to walk the end of a run and turn into
-  // the next aisle, and nothing more. The chain leaves 7.5.
-  wallMargin: 2.6,
-  // 6.2 − UNIT_DEPTH(2.16) = 4.04 ft of clear aisle.
-  runSpacing: 6.2,
-  // Half the chain's cross-aisle break: 3 ft of dead floor between run chunks
-  // is a luxury this store doesn't have.
-  runBreakGap: 1.5,
-  fieldZFront: -6.4,
-  // 8.0, not the 3 ft a cramped aisle would otherwise want, because THE BACK
-  // ROOM stands in this strip: the curtained alcove is 5 ft deep against the
-  // back wall (fixtures/curtained-alcove.ts), leaving ~3 ft of cross-aisle in
-  // front of its curtain. The two numbers are read together — shrink this and
-  // the shelf runs walk into the alcove. Every other format leaves its back
-  // strip as plain circulation.
-  backAisleClearance: 8.0,
-  // Long runs are the POINT here ("one long shelf run down the middle"), so the
-  // run length starts where the chain's tops out and climbs from there.
-  baseRunUnits: 6,
-  maxRunUnitsCap: 10,
-  runGrowthPerUnits: 20,
-  // A mom-and-pop never becomes a warehouse. Past 44 ft it only gets deeper —
-  // which is exactly how a strip-mall unit grows.
-  widthCap: 44.0,
-  depthToWidthRatio: 1.8,
-
-  frontPanesBaseline: 2,
-  sidePanesBaseline: 2,
-  // Unused when entryStyle is 'storefront-door' (below) — there is no
-  // chamber to give an inner width to. Left at its GH #33 value rather than
-  // deleted so a future format that wants a SMALL vestibule (narrower than
-  // the chain's, but still a real airlock) has a real number to start from.
-  vestibuleInnerWidth: 4.6,
-  doorWidth: 3.0,
-  counterShape: 'desk',
-  doorStyle: 'single',
-  // GH #110: no chamber at all — one door leaf in the front wall, the way a
-  // real small shop is built. This is what actually shrinks the format's
-  // floor (vestibuleHalfWidth() collapses to little more than the door
-  // itself instead of a 10.6 ft airlock — see store-layout.ts).
-  entryStyle: 'storefront-door',
-  // Half the chain's return: a plain storefront doesn't need a wide flat
-  // brick jamb either side of its glazing the way a gabled brick tower does.
-  frontCornerMargin: 1.0,
-
-  aisleShelfHeights: [0.42, 1.295, 2.17, 3.045, 3.92, 4.795, 5.67, 6.545, 7.42],
-  unitSections: 1,
-  unitFrameHeight: 8.2,
-  unitTaper: false,
-  browseStandoff: 2.6,
-  shelfFinish: 'wood',
-  // Golden-oak veneer for the boards and carcass; a darker walnut stain on the
-  // end panels, so a run still terminates in something that reads as a deliberate
-  // face rather than dissolving into the panelled wall behind it.
-  shelfWoodHex: '#b0793f',
-  shelfEndPanelHex: '#6f4322',
-
-  // GH #110: its own building, not a narrower copy of the chain's — a plain
-  // painted-block/stucco elevation, hand-lettered fascia, no illuminated
-  // marquee band. See storefront-facade-shop.ts.
-  facadeStyle: 'storefront',
-  ceilingY: 9.0,
-  steppedCorner: false,
-  // ~3x the fixture count at a bit under half the output each: net a little
-  // more light than the chain grid, spread far more evenly, because in here
-  // "evenly" is the whole problem. See keyLightSpacingScale.
-  keyLightSpacingScale: 0.55,
-  keyLightIntensityScale: 0.45,
-  carpet: 'shag',
-  // Dark chocolate shag. Deliberately deeper than any theme carpet — the
-  // corporate palette's dusty blue at this saturation would read as "chain
-  // store with the lights off", not as a different kind of shop.
-  carpetHex: '#5c3a24',
-  wallFinish: 'wood-panel',
-  // Mid-brown stained veneer, a little warmer and lighter than the floor so the
-  // room has a horizon: a shag-brown wall over a shag-brown floor is a cave.
-  wallHex: '#8a5d38',
-
-  floorDisplays: false,
-  newReleasesWall: false,
-  // GH #110: bumped from 1 — a real library behind this format reads as
-  // thin with only one signboard bay of new releases, and two still reads as
-  // "a shelf of new releases," not a wall.
-  newReleasesRuns: 2,
-  clerk: false,
-  ceilingTvs: false,
-  // GH #110: no headroom for the ceiling rig (see ceilingTvs), but the room
-  // should still have a television.
-  counterTv: true,
-  curtainedSection: true,
-  ceilingMirror: false,
-  overheadSignage: false,
-  counterDressing: false,
-};
-
+// One format. The mom-and-pop preset (upstream GH #33) was removed on request:
+// it was a second whole set of geometry constants — tighter runs, shorter
+// shelving, a standalone desk instead of a counter — carried for a store shape
+// this fork does not offer.
+//
+// The registry stays at one entry rather than being inlined. It is what keeps
+// format-specific numbers out of the store's own code, the same reason the
+// provider registry stays at one backend, and it is what a second fit-out would
+// slot into.
 export const STORE_FORMATS: Record<StoreFormatId, StoreFormatSpec> = {
   'corporate': CORPORATE,
-  'mom-and-pop': MOM_AND_POP,
 };
 
 export const DEFAULT_STORE_FORMAT: StoreFormatId = 'corporate';
@@ -613,7 +507,4 @@ export function activeStoreFormat(): StoreFormatSpec {
   return ACTIVE;
 }
 
-/** Convenience predicate for the handful of places that only care about the small format. */
-export function isMomAndPop(): boolean {
-  return ACTIVE.id === 'mom-and-pop';
-}
+

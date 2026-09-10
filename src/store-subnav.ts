@@ -62,8 +62,6 @@ import {
   enterEndcapCursor, enterFixtureCursor, enterShelfCursor,
 } from './browse-cursor';
 import { OVERVIEW_POS } from './scene-shared';
-import { FIELD_Z_FRONT, FRONT_GLASS_Z } from './store-layout';
-import { isMomAndPop } from './store-format';
 import { aimOverviewAt } from './store-camera';
 import { isEndcapKind } from './fixtures/genre-endcap';
 import { slottedFixtureLabel, qualifyDuplicateLabels } from './fixture-labels';
@@ -128,14 +126,6 @@ const PREVIEW_LOOK_LIFT = 0.9;
 const WALKUP_DIST = 3.4;
 const WALKUP_EYE_Y = 5.2;
 const SUBNAV_GLIDE_LERP = 0.35;
-// Looking down a run (Row 1, mom-and-pop only — see aisleVantage). Standoff is
-// the walkway's own width off the browsed face; the lead puts the camera just
-// outside the run's entrance end so the whole face recedes away from you, and
-// the look drops below the marker onto the stock.
-const AISLE_CAM_STANDOFF = 4.6;
-const AISLE_CAM_MOUTH_LEAD = 5.4;
-const AISLE_CAM_EYE_Y = 5.4;
-const AISLE_CAM_LOOK_DROP = 1.5;
 
 export function subNavActive(scene: StoreScene): boolean {
   const state = scene.subNav;
@@ -300,45 +290,6 @@ function faceFixture(scene: StoreScene, item: SubNavItem, dist: number, eyeY: nu
   scene.requestRender();
 }
 
-/**
- * Where to STAND to look down the run a Row 1 ticket floats over.
- *
- * The corporate box is read from one pulled-back vantage: it is wide enough
- * and its gondolas are low enough that panning the head from the entrance
- * shows you every run over the top of the others. A mom-and-pop store is not
- * — its runs are close together and the vantage is only feet from the glass,
- * so panning to a section behind a run frames the blank end of that run's
- * carcass and the player cannot see what they have highlighted (owner report,
- * 2026-09-01). So in that format Row 1 gets what Row 2 has always had: a real
- * position. The camera goes into the walkway that serves the ticket's OWN
- * browsed face, just outside the run's entrance end, and looks along it — the
- * stock recedes away down the row instead of hiding behind it.
- *
- * Null for anything that is not shelving (the counter, 2D MODE, the New
- * Releases wall — all of which the entrance vantage already sees), which is
- * what keeps the pan-in-place path as the default.
- */
-function aisleVantage(scene: StoreScene, item: SubNavItem): { x: number; z: number } | null {
-  if (item.kind !== 'library' && item.kind !== 'genre') return null;
-  const units = scene.shelvingUnits.filter((u) => u.libraryIdx === item.libraryIdx);
-  const unit = units[item.unitIdxInLibrary];
-  if (!unit) return null;
-  // A physical row can be poured as several units (and several lineId chunks);
-  // its mouth is the entrance-most one, or you end up standing INSIDE the row
-  // when the ticket sits on a unit halfway down it.
-  let frontZPos = unit.zPos;
-  for (const u of units) {
-    if (u.rowGroupId === unit.rowGroupId && u.zPos > frontZPos) frontZPos = u.zPos;
-  }
-  const faceSign = (item.side === 'front' ? 1 : -1) * unit.browseSign;
-  const localX = unit.xCenter + faceSign * AISLE_CAM_STANDOFF;
-  const localZ = FIELD_Z_FRONT + frontZPos + AISLE_CAM_MOUTH_LEAD;
-  const w = scene.plan.unitToWorld(unit, localX, localZ);
-  // Never stand through the front glass: a short store can put the mouth lead
-  // outside the building. Pulling only Z back keeps the walkway alignment.
-  return { x: w.x, z: Math.min(w.z, FRONT_GLASS_Z - 1.2) };
-}
-
 function previewCurrent(scene: StoreScene, state: SubNavState): void {
   const item = state.rows[state.row][state.sel[state.row]];
   if (!item) return;
@@ -353,12 +304,10 @@ function previewCurrent(scene: StoreScene, state: SubNavState): void {
     // when the aisle vantage then overrides the targets, so the angles never
     // go stale under it.
     aimOverviewAt(scene, item.x, item.y, item.z);
-    const v = isMomAndPop() ? aisleVantage(scene, item) : null;
-    state.aisleCam = !!v;
-    if (v) {
-      scene.targetCameraPos.set(v.x, AISLE_CAM_EYE_Y, v.z);
-      scene.targetLookAt.set(item.x, item.y - AISLE_CAM_LOOK_DROP, item.z);
-    }
+    // The aisle vantage existed for the mom-and-pop format, whose runs were too
+    // tight for the overview's standard standoff to frame. The corporate box
+    // does not need it, so the overview aim above stands unaltered.
+    state.aisleCam = false;
     scene.cameraGlideLerp = SUBNAV_GLIDE_LERP;
     scene.requestRender();
   } else {
