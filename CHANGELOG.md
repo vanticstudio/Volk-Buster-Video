@@ -114,6 +114,13 @@ small multi-user service, and making it ours.
 
 ### Fixed
 
+- **Puppeteer is pinned to `~25.2.0`, patch-only, deliberately.** Updating it to
+  25.10 made it demand a Chrome build that will not download in this
+  environment, which broke `tools/gen-cover-thumbs.mjs` — a caret range would
+  let a routine `npm update` walk into that again. It is a dev-only tool
+  dependency; there is nothing to gain from tracking its majors.
+
+
 - `setup-failure-report.ts` reported version 0.11.1 while `package.json` was at
   0.15.0, so every report a user filed named a build four releases old.
 
