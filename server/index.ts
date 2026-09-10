@@ -694,16 +694,24 @@ export function main(): void {
     // The setup code goes to the log on purpose: reading it is what proves
     // control of the host, and it is the only thing standing between a
     // brand-new store and whoever finds the address first.
+    // Drawn through a helper rather than as pre-padded literals. The literals
+    // had drifted: three of the six rows sat a character out, because the port
+    // row's padEnd had to allow for a variable-width port number and the two
+    // prose rows were counted by eye. This is the first thing anyone sees after
+    // `docker run`, and a crooked box reads as a broken install.
+    const W = 56;
+    const rule = (l: string, r: string) => `  ${l}${'\u2500'.repeat(W)}${r}`;
+    const row = (text = '') => `  \u2502  ${text.padEnd(W - 2)}\u2502`;
     console.log('');
-    console.log('  ┌────────────────────────────────────────────────────────┐');
-    console.log('  │  VolkBuster Video is not set up yet.                   │');
-    console.log('  │                                                        │');
-    console.log(`  │  Open  http://<this-host>:${String(cfg.port).padEnd(28)}│`);
-    console.log(`  │  Setup code:  ${String(instance.setupToken).padEnd(41)}│`);
-    console.log('  │                                                        │');
-    console.log('  │  Secrets were generated automatically and stored        │');
-    console.log('  │  beside the database. Nothing to configure by hand.     │');
-    console.log('  └────────────────────────────────────────────────────────┘');
+    console.log(rule('\u250c', '\u2510'));
+    console.log(row('VolkBuster Video is not set up yet.'));
+    console.log(row());
+    console.log(row(`Open  http://<this-host>:${cfg.port}`));
+    console.log(row(`Setup code:  ${instance.setupToken}`));
+    console.log(row());
+    console.log(row('Secrets were generated automatically and stored'));
+    console.log(row('beside the database. Nothing to configure by hand.'));
+    console.log(rule('\u2514', '\u2518'));
     console.log('');
   });
 }
