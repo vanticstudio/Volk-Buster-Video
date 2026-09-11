@@ -15,7 +15,18 @@ started · `PARKED` deliberately deferred, with the reason.
 
 ## In flight
 
-Nothing. The list below is what is done and what is next.
+### Client memory — `BUILDING`
+
+A tab holding 1.5 GB slows a viewer's whole computer, which is a lot to ask of
+someone who came to pick a film. Two pieces have landed. A viewer's browser no
+longer keeps a CPU copy of the high-res poster bank (300 MiB on a 2,048-layer
+driver, 328 MiB on 4,096+), because a viewer can never trigger the scene
+rebuild it exists for. And decoded cover art is byte-capped, 96 MiB of
+backdrops and 16 MiB per thumbnail cache, instead of growing all session.
+
+Neither is measured on a real boot yet, and that comes before anything else is
+built on them. The large saving is not in the client at all: it is rendering
+on the host, under Next.
 
 ---
 
@@ -54,6 +65,10 @@ app icon — the rendered assets, not just the strings.
 One `docker run` at the top of the README, pulling a multi-arch image from
 GHCR. Verified anonymously pullable for both amd64 and arm64 through the
 registry API.
+
+On ZimaOS it installs as **Volkbusters**, icon included, from YAML. ZimaOS
+reads an app's title and icon only from a top-level `x-casaos` block, which a
+`docker run` line cannot carry.
 
 ### Management console on 3366 — `DONE`
 
@@ -129,6 +144,21 @@ store is served through the front door. Before this, every viewer on a
 tunnelled port had SUSPEND SYSTEM (sleeps the owner's NAS) and CHANGE SERVER /
 LOG OUT (repoints the store's Plex connection for whoever loads it next).
 
+### 30 FPS in the store — `DONE` headless, confirm on the live store
+
+Moving between sections ran at 3-5 FPS on an M4 Pro and a 12th-gen i5, and
+slowed the whole machine. The resolution scaler caused it: a dip made it step
+down, the resize rebuilt 15 render targets synchronously, and it read that
+stall as a slow GPU and stepped down again. Fixed with a resize grace, a 30 FPS
+target and supersampling off by default. Headless on the M4 Pro, 20 section
+changes now deliver 28.4 composites a second, up from 14.2, with no main-thread
+blocks.
+
+Of the levers this entry used to list, the fps cap and both supersampling
+factors were pulled. Not needed for 30, so not pulled: the `bb_px_budget` seed,
+`liveMirrorsAllowed()` ignoring `bb_mirrors=0`, instancing the ceiling
+troffers, and n8ao `transparencyAware=false`.
+
 ---
 
 ## Next
@@ -143,19 +173,6 @@ instance on the host, streamed to the browser — the design is written up in
 
 Blocked behind Cloudflare TURN, because a WebRTC stream through the tunnel
 needs a relay the tunnel does not provide.
-
-### 30fps floor — `NEXT`
-
-Analysed, not applied. The levers, in the order they are worth pulling:
-
-- seed `bb_fps_cap=30`, `bb_motion_ss=0`, `bb_settle_ss=0`, `bb_px_budget=2.07`
-- make `liveMirrorsAllowed()` honour `bb_mirrors=0` (today it does not)
-- instance the ceiling troffers
-- n8ao `transparencyAware=false` — **needs an A/B against the storefront
-  glazing first**, since that is exactly the surface the flag is about
-
-Wants a management-console toggle rather than being hard-coded, so the owner
-can pick smooth-on-a-phone versus pretty-on-a-TV.
 
 ### Playback handoff — `NEXT`
 

@@ -151,6 +151,34 @@ small multi-user service, and making it ours.
   escalation existed only because the mom-and-pop entry changed the store
   FORMAT, which is resolved at module evaluation.
 
+- **The store aims at a steady 30 FPS and no longer supersamples.** It used to
+  aim at 60 on capable hardware and render twice the pixels while moving: a
+  10.9 MP drawing buffer on a Retina M4 Pro, pushed through the bloom chain on
+  every frame of a section change. `STORE_TARGET_FPS`, `STORE_MOTION_SS` and
+  `STORE_SETTLE_SS` in `display-hz.ts` hold the defaults, and an explicit
+  `bb_fps_cap`, `bb_motion_ss` or `bb_settle_ss` still wins. The cost is that a
+  parked frame renders at native resolution, which is sharp on a Retina panel.
+
+- **A viewer's browser no longer keeps a CPU copy of the high-res poster
+  bank**: 300 MiB on a 2,048-layer driver, 328 MiB on 4,096+. The copy exists so
+  a scene rebuild can re-upload every poster at once, and a viewer can never
+  trigger a rebuild. The owner's desktop keeps it. Computed from the
+  allocation; not yet measured on a real boot.
+
+- **Decoded cover art is byte-capped** instead of kept for the whole session:
+  96 MiB of shelf backdrops and 16 MiB each for episode stills and season
+  posters, evicting whatever was viewed longest ago. This bounds a long browse
+  rather than lowering the starting footprint.
+
+- **ZimaOS installs the app as Volkbusters, with its icon.** ZimaOS reads the
+  title and icon only from a top-level `x-casaos` block, and
+  `deploy/zimaos-compose.yml` had its block inside the service with no title,
+  so an install stopped at "Resolve YAML placeholder before saving". The block
+  is at the top level now. A `docker run` line has nowhere to carry either
+  value, so the README also gives a filled-in YAML that is the same install as
+  its command. The container is `volkbusters`; the `volkbuster-data` volume and
+  `/DATA/AppData/volkbuster` keep their names, so no data moves.
+
 ### Removed
 
 - **The 2.5D DOM store and the device gate.** In a stream-only build a viewer's
@@ -222,7 +250,23 @@ small multi-user service, and making it ours.
 - The DVD `blue` cover variant has always been offered in the settings drawer
   with no preview image at all. It has one now.
 
+- **Moving through the store ran at 3-5 FPS on capable machines**, an M4 Pro
+  and a 12th-gen i5, and slowed the whole computer. The resolution scaler,
+  meant to protect frame rate, caused it. A section change dipped, the scaler
+  stepped resolution down, and the resize rebuilt all 15 render targets
+  synchronously. The scaler then counted that stall as a slow GPU and stepped
+  down again, all the way to the 0.5 floor, leaving the store stuttering and
+  blurry at once. A resize now gets a one-second grace before the scaler
+  measures again. With that and the new defaults above, headless on the M4 Pro
+  through 20 section changes: 28.4 composites a second, up from 14.2, and no
+  main-thread blocks, down from 15 totalling 2.2 s.
+
 ### Known
+
+- **The 30 FPS figures are from headless Chromium** on the M4 Pro, against the
+  941-title demo. The live store carries 2,174 titles, a real window's frame
+  timing is not headless Chromium's, and the 12th-gen i5 has not been
+  re-measured.
 
 - A latent bug inherited from upstream, not yet fixed: tearing down the flat
   store removed the search overlay from the DOM without clearing the module's
