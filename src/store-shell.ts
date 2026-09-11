@@ -1232,7 +1232,10 @@ export function buildStore(scene: StoreScene) {
     // what --quality asked for, and no screenshot could gate the look. The
     // harness's own fast default is quality LOW, which still lands on the cheap
     // tier, so this costs nothing on ordinary shots.
-    const soffitReflectorSize = reflectorTargetSize(scene.renderer);
+    // Half the cornice's target: the band is a thin, grazing-foreshortened
+    // strip nobody resolves a reflection in, and its refresh re-renders the
+    // whole scene at this size up to 20x a second.
+    const soffitReflectorSize = reflectorTargetSize(scene.renderer, 0.5);
 
     const soffit = buildFrontSoffit({
       scene: scene.scene,

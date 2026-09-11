@@ -55,6 +55,12 @@ export type QualityTier = 'low' | 'medium' | 'high';
  * part of the cache signature, so a bump invalidates every stored result. */
 export const CALIBRATION_VERSION = 1;
 
+// Re-measure after this long even when the signature still matches: a driver
+// update, a browser GPU-blocklist change, or a new adapter can move a machine
+// between tiers without changing gpuName/screen/DPR, and a cached result used
+// to be authoritative for the whole lifetime of the profile.
+const CALIBRATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export interface CalibratedQuality {
   tier: QualityTier;
   supersample: boolean;
@@ -139,6 +145,8 @@ export function readCalibratedQuality(gpuName: string): CalibratedQuality | null
   const tier = localStorage.getItem('bb_quality_auto');
   if (!isValidTier(tier)) return null;
   if (localStorage.getItem('bb_quality_sig') !== computeSig(gpuName)) return null;
+  const stamp = Number(localStorage.getItem('bb_quality_stamp'));
+  if (Number.isFinite(stamp) && stamp > 0 && Date.now() - stamp > CALIBRATION_TTL_MS) return null;
   return { tier, supersample: localStorage.getItem('bb_quality_ss') === '1' };
 }
 
@@ -488,7 +496,9 @@ export async function calibrateQualityIfNeeded(): Promise<QualityTier | null> {
 
     const sig = computeSig(gpuName);
     const cachedTier = localStorage.getItem('bb_quality_auto');
-    if (localStorage.getItem('bb_quality_sig') === sig && isValidTier(cachedTier)) {
+    const stamp = Number(localStorage.getItem('bb_quality_stamp'));
+    const fresh = Number.isFinite(stamp) && stamp > 0 && Date.now() - stamp <= CALIBRATION_TTL_MS;
+    if (localStorage.getItem('bb_quality_sig') === sig && isValidTier(cachedTier) && fresh) {
       const ss = localStorage.getItem('bb_quality_ss') === '1';
       console.log(`[calibrate] ${gpuName} → ${cachedTier}${ss ? ' +supersample' : ''} (cached)`);
       disposeProbe(probe);
@@ -510,6 +520,7 @@ export async function calibrateQualityIfNeeded(): Promise<QualityTier | null> {
     localStorage.setItem('bb_quality_auto', tier);
     localStorage.setItem('bb_quality_ss', supersample ? '1' : '0');
     localStorage.setItem('bb_quality_sig', sig);
+    localStorage.setItem('bb_quality_stamp', String(Date.now()));
     console.log(`[calibrate] ${score.toFixed(1)}ms median (${gpuName}) → ${tier}${supersample ? ' +supersample' : ''} (${elapsedMs.toFixed(0)}ms)`);
     return tier;
   } catch (e) {

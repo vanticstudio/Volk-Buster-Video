@@ -63,6 +63,15 @@ export function updateLookDownPresent(scene: StoreScene) {
   scene.lookDownPresentRotY = Math.atan2(dx / len, dz / len);
 }
 
+// Armed by store-nav.ts's duplicate-skip walk: defer the per-step retarget
+// (updateLOD's O(slots) scan, loadFullDetails, arrow + HUD updates) — every
+// step's outputs are overwritten by the next before a frame can draw, so the
+// walk pays ONE real retarget for the slot it lands on.
+export function updateCameraTargetDeferred(scene: StoreScene) {
+  if (scene.navRetargetDefer > 0) { scene.navRetargetOwed = true; return; }
+  return updateCameraTarget(scene);
+}
+
 export function updateCameraTarget(scene: StoreScene) {
   scene.updateLOD();
   // Any retargeting (user navigation, mode change) cuts the return-drop

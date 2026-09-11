@@ -625,6 +625,10 @@ export class StoreScene {
   // moment the ritual ends — the camera then glides to the normal target —
   // and any user navigation (updateCameraTarget) cancels it early.
   public returnDropWatch = false;
+  // store-nav.ts's duplicate-skip walk arms these to defer per-step retargets
+  // (see store-camera.ts's updateCameraTargetDeferred).
+  public navRetargetDefer = 0;
+  public navRetargetOwed = false;
   /** Door-denied stamp; a second BACK inside the window returns the rentals
    *  early. 0 = unarmed. The rule is store-rental.ts's tryBackRoomDoor. */
   public rentalEarlyReturnArmedAt = 0;
@@ -3012,7 +3016,7 @@ export class StoreScene {
   // slot-pose pass.
   public updateLookDownPresent() { return cam.updateLookDownPresent(this); }
 
-  public updateCameraTarget() { return cam.updateCameraTarget(this); }
+  public updateCameraTarget() { return cam.updateCameraTargetDeferred(this); }
 
   // Build the floating "you are here" arrow: a downward-pointing marker with a
   // library-name plaque above it. Created once; its plaque texture is redrawn and
@@ -4280,7 +4284,7 @@ export class StoreScene {
       // VIDEO tier or stationary: don't let throttled or resting pacing feed the window;
       // just keep the clock from accumulating stale elapsed time across the gap.
       this.resScaleFrames = 0;
-      this.resScaleWindowStart = time;
+      this.resScaleWindowStart = Math.max(this.resScaleWindowStart, time); // keep a resize grace
       return;
     }
     // Texture uploads are not a GPU verdict. The boot wave (and any streaming
@@ -4294,7 +4298,7 @@ export class StoreScene {
     if (pendingTextureUploads() > 0) {
       this.resScaleFrames = 0;
       this.resScaleGoodStreak = 0;
-      this.resScaleWindowStart = time;
+      this.resScaleWindowStart = Math.max(this.resScaleWindowStart, time); // keep a resize grace
       return;
     }
     if (time < this.resScaleWindowStart) return; // resize grace — see applyRenderResolution
@@ -4830,7 +4834,14 @@ export class StoreScene {
       active = true;
     }
     this.tierIsIdle = !active && !videoPlaying;
-    this.currentTier = active ? 'active' : (videoPlaying ? 'video' : 'idle');
+    const nextTier = active ? 'active' : (videoPlaying ? 'video' : 'idle');
+    // The VIDEO tier renders bloom's bright-pass + 5-mip blur chain at half
+    // res (applyRenderResolution's bloomDivisor), but the divisor was only
+    // recomputed on a resize — a store that entered VIDEO kept paying full-res
+    // bloom for as long as the TVs played. Re-apply once on the transition;
+    // the grace this triggers is already excluded from the scaler.
+    if (nextTier !== this.currentTier && this.bloomPass) this.applyRenderResolution();
+    this.currentTier = nextTier;
 
     // Set when applyRenderResolution() ran this frame: the drawing-buffer
     // resize cleared the canvas, so we must composite before this frame

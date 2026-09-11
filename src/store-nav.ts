@@ -58,12 +58,28 @@ export function moveSkippingDuplicatesImpl(scene: StoreScene, dir: 'left' | 'rig
   // left; guard bounds the walk so an all-duplicates edge can never spin forever.
   if (scene.mode !== 'browse' || !startMovie) return;
   let guard = 0;
-  while (guard++ < 300) {
-    const cur = scene.getSelectedMovie();
-    if (!cur || cur.id !== startMovie.id) break; // landed on a different title — done
-    const keyBefore = scene.getActiveSlotKey();
-    if (dir === 'left') scene.moveLeftInternal(); else scene.moveRightInternal();
-    if (scene.getActiveSlotKey() === keyBefore) break; // couldn't move (hit an end)
+  // Defer the per-step retarget: every internal move would otherwise pay the
+  // full updateCameraTarget chain (updateLOD's O(slots) scan, a priority-3
+  // loadFullDetails, selection-arrow + HUD updates) for a cursor position the
+  // next step overwrites before a frame can draw — N copies of a title meant N
+  // chains in ONE keypress, at key-repeat rate. The walk's break conditions
+  // read only the selected* fields the moves set directly (getSelectedMovie /
+  // getActiveSlotKey never touch retarget outputs), so one real retarget at
+  // the landing slot reconciles everything.
+  scene.navRetargetDefer++;
+  try {
+    while (guard++ < 300) {
+      const cur = scene.getSelectedMovie();
+      if (!cur || cur.id !== startMovie.id) break; // landed on a different title — done
+      const keyBefore = scene.getActiveSlotKey();
+      if (dir === 'left') scene.moveLeftInternal(); else scene.moveRightInternal();
+      if (scene.getActiveSlotKey() === keyBefore) break; // couldn't move (hit an end)
+    }
+  } finally {
+    if (--scene.navRetargetDefer === 0 && scene.navRetargetOwed) {
+      scene.navRetargetOwed = false;
+      scene.updateCameraTarget();
+    }
   }
 }
 

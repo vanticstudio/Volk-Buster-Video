@@ -113,11 +113,11 @@ export function liveMirrorsAllowed(scene: StoreScene): boolean {
  * in the feedback pin. Fill cost is the only thing that grows with this; the
  * reflected scene's draw calls, which are what a refresh actually costs, do not.
  */
-export function reflectorTargetSize(renderer: THREE.WebGLRenderer): { w: number; h: number } {
+export function reflectorTargetSize(renderer: THREE.WebGLRenderer, scale = 1): { w: number; h: number } {
   const buf = renderer.getDrawingBufferSize(new THREE.Vector2());
   const quality = localStorage.getItem('bb_quality') || 'high';
   const cap = quality === 'low' ? 256 : quality === 'medium' ? 512 : 1024;
-  const w = Math.max(64, Math.min(cap, Math.round(buf.x)));
+  const w = Math.max(64, Math.min(cap, Math.round(buf.x * scale)));
   return { w, h: Math.max(64, Math.round(w * (buf.y / Math.max(1, buf.x)))) };
 }
 

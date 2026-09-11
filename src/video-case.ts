@@ -2213,6 +2213,17 @@ function heroFaceMaterial(
 // has to be repainted each time. `highlightedName` is optional — an inspected
 // case with no cast row selected wants the same high-resolution back, which is
 // what left the plain synopsis soft while the highlighted one was sharp.
+// Hero faces are 960x1440 mipmapped canvases; four of them land in the same
+// frame on inspect entry, ~22 MB of upload + mip regen that used to run
+// synchronously inside the first composited glide frame. Queue the upload
+// instead: the priority lane drains one task per frame, so the faces arrive
+// over the first four frames of the glide rather than stalling its first one.
+// The seq guard above already makes a stale upload harmless — it re-flags a
+// canvas a newer draw owns, which is identical pixels to the direct path.
+function queueHeroFaceUpload(tex: THREE.CanvasTexture): void {
+  queueTextureUpload(() => { tex.needsUpdate = true; }, 'priority');
+}
+
 function getJellyfinBackMaterialHero(
   movie: Movie,
   highlightedName?: string,
@@ -2244,8 +2255,8 @@ function getJellyfinBackMaterialHero(
   // Re-upload after EVERY synchronous redraw. This used to be flagged only by
   // the async backdrop callback, so once backdrops were cached (no callback)
   // the GPU kept the pixels of the first title ever flipped — every box's
-  // back showed that one movie.
-  tex.needsUpdate = true;
+  // back showed that one movie. Queued — see queueHeroFaceUpload.
+  queueHeroFaceUpload(tex);
 
   const env = (probeIdx !== undefined && reflectionProbes[probeIdx]) ? reflectionProbes[probeIdx] : null;
   const isAnimated = CASE_MEDIUM === 'vhs' && movie.libraryName === 'Animated Movies';
@@ -2286,7 +2297,7 @@ function getRentalBackMaterialHero(movie: Movie, probeIdx?: number): THREE.MeshS
     tex.needsUpdate = true;
   });
   paintRentalRimBorder(ctx, W, H, edgeColor, 'back');
-  tex.needsUpdate = true;
+  queueHeroFaceUpload(tex); // see queueHeroFaceUpload — was a direct needsUpdate
 
   const env = (probeIdx !== undefined && reflectionProbes[probeIdx]) ? reflectionProbes[probeIdx] : null;
   const mat = heroFaceMaterial(
@@ -2317,7 +2328,7 @@ function getRentalFrontMaterialHero(movie: Movie, probeIdx?: number): THREE.Mesh
     tex.needsUpdate = true;
   });
   paintRentalRimBorder(ctx, W, H);
-  tex.needsUpdate = true;
+  queueHeroFaceUpload(tex); // see queueHeroFaceUpload — was a direct needsUpdate
 
   const env = (probeIdx !== undefined && reflectionProbes[probeIdx]) ? reflectionProbes[probeIdx] : null;
   const mat = heroFaceMaterial(
@@ -2350,7 +2361,7 @@ function getRentalSpineMaterialHero(movie: Movie, probeIdx?: number): THREE.Mesh
     tex.needsUpdate = true;
   });
   paintRentalRimBorder(ctx, W, H, '#0a0a0a', 'spine');
-  tex.needsUpdate = true;
+  queueHeroFaceUpload(tex); // see queueHeroFaceUpload — was a direct needsUpdate
 
   const env = (probeIdx !== undefined && reflectionProbes[probeIdx]) ? reflectionProbes[probeIdx] : null;
   const mat = heroFaceMaterial(
