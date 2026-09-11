@@ -23,13 +23,32 @@ let bootFlavorIdx = 0;
 export function initBootLoader(): void {
   const viewer = isViewerOnly();
   const loader = document.getElementById('boot-loader');
-  const panel = document.getElementById('boot-console-panel');
-  // Explicit display, not the `hidden` attribute alone: .boot-console sets
-  // display:flex, which (author origin) defeats the UA stylesheet's [hidden]
-  // rule — both panels used to render on the public side, which is exactly
-  // what the attribute was supposed to prevent. The viewer sees the friendly
-  // loader ONLY; the owner sees the ops log ONLY. Full detail still reaches
-  // console.log and the dev-console for either.
+  let panel = document.getElementById('boot-console-panel');
+  // The viewer gets the friendly loader ONLY — the ops-log panel is REMOVED
+  // from the DOM, not merely hidden. Three layers had already failed to keep
+  // it off the public screen: the `hidden` attribute (defeated by
+  // .boot-console's display:flex, author origin over the UA sheet), the CSS
+  // fix, and a cached pre-fix bundle on an existing deploy. Deleting the node
+  // cannot be defeated by any of that, and logToConsole re-creates nothing —
+  // its boot-container append simply no-ops once the element is gone.
+  // Owner/local mode keeps the panel: this function is called again on every
+  // rebuild, so the panel must be restored, not just spared.
+  if (viewer) {
+    if (panel) {
+      panel.remove();
+      panel = null;
+    }
+  } else if (!panel && loader) {
+    // A rebuild after a viewer-mode boot: resurrect the owner's ops log.
+    panel = document.createElement('div');
+    panel.className = 'boot-console boot-console-log';
+    panel.id = 'boot-console-panel';
+    panel.innerHTML =
+      '<div class="boot-console-header"><span>HTPC Operations Log</span><span class="pulse-indicator"></span></div>'
+      + '<div class="boot-console-logs" id="boot-console-logs-container">'
+      + '<div class="log-entry system">[System] Booting VolkBuster...</div></div>';
+    loader.insertAdjacentElement('afterend', panel);
+  }
   if (loader) {
     loader.hidden = !viewer;
     loader.style.display = viewer ? '' : 'none';
