@@ -22,6 +22,7 @@ import {
   isHevcPassThroughEnabled,
   buildSubtitleTrackUrl,
   pickSubtitleDelivery,
+  coercePlexSubtitleDelivery,
   MediaPlaybackInfo,
   MovieVersion,
   Episode,
@@ -806,7 +807,8 @@ const recentLogLines: string[] = [];
 // The helpers live in boot-loader.ts (extracted for the line budget); main.ts
 // only feeds them and calls them.
 
-import { initBootLoader, friendlyBootStatus, setBootStatus, setBootProgress } from './boot-loader';
+import { initBootLoader, setBootProgressRatio, feedBootLoader, warnIfSoftwareGpu, openRevealGate } from './boot-loader';
+import { applyClockDrivenLook, scheduleClockDrivenLook, storeHoursConfigured } from './store-hours';
 
 function logToConsole(message: string, type: 'system' | 'cec' | 'video' = 'system') {
   const container = document.getElementById('console-logs-container');
@@ -820,10 +822,8 @@ function logToConsole(message: string, type: 'system' | 'cec' | 'video' = 'syste
   recentLogLines.push(formattedText);
 
   // Public boot loader: translate the raw line into a friendly status while
-  // the overlay is up. No-op outside boot (the overlay is hidden) and on the
-  // owner console (which shows the raw log instead).
-  const friendly = friendlyBootStatus(message);
-  if (friendly) setBootStatus(friendly);
+  // the overlay is up (no-op on the owner console, which shows the raw log).
+  feedBootLoader(message);
   if (recentLogLines.length > MAX_LOG_ENTRIES) recentLogLines.shift();
 
   if (container) {
@@ -2643,14 +2643,8 @@ async function initializeStoreScene(preservePosterCache = false) {
     logToConsole(`[System] Planning the store floor for ${plannedTitles} title(s)...`, 'system');
     const scene = new StoreScene(canvasContainer, storeLibraries, logToConsole, jfUrl, jfToken, storeComingSoon, storeDiscovery, storeGameMovies, staffPicks);
     armQualityBackstop();
-    // The renderer exists now, so the GPU verdict is in. A software-rendered
-    // (or integrated-picked) machine is the answer to "why is the store slow
-    // on a good PC" — say so on the loader while it is still up, in plain
-    // words, instead of leaving the verdict in a console log nobody opens.
-    const { gpuVerdict } = await import('./three-scene');
-    if (gpuVerdict && gpuVerdict.software && isViewerMode()) {
-      setBootStatus('This device is drawing the store without a graphics card — it will run slowly.');
-    }
+    // The renderer exists now — surface a software-GPU verdict on the loader.
+    void warnIfSoftwareGpu();
     // A fresh attempt is underway — any earlier give-up no longer applies (it
     // could only be reached again via a brand-new page load, which is a fresh
     // JS environment anyway, or a rebuild the user triggered by hand).
@@ -2672,7 +2666,7 @@ async function initializeStoreScene(preservePosterCache = false) {
         lastLoggedPct = pct;
         logToConsole(`[System] Loading store textures... ${pct}% (${loaded}/${total})`, 'system');
       }
-      setBootProgress(pct);
+      setBootProgressRatio(loaded, total);
     };
 
     // Wire up selection change callback
@@ -2849,24 +2843,8 @@ async function initializeStoreScene(preservePosterCache = false) {
     logToConsole('[System] Loading store textures...', 'system');
 
     // Reveal when the shelves are READY ENOUGH, not when the slowest title in
-    // the catalog finishes: one hung poster URL used to hold the whole store
-    // behind the overlay. 90% settled (or 20s, whichever first) opens the
-    // doors; the remaining art streams in via loadShelfDetails exactly as it
-    // does when browsing past an unloaded section today.
-    const REVEAL_AT_PCT = 90;
-    const REVEAL_TIMEOUT_MS = 20_000;
-    const revealReady = new Promise<void>((resolve) => {
-      let settledCount = 0;
-      let total = 0;
-      const origProgress = scene.onTextureLoadProgress;
-      scene.onTextureLoadProgress = (loaded, t) => {
-        settledCount = loaded; total = t;
-        origProgress?.(loaded, t);
-        if (total > 0 && (settledCount / total) * 100 >= REVEAL_AT_PCT) resolve();
-      };
-      setTimeout(resolve, REVEAL_TIMEOUT_MS);
-      scene.texturesReadyPromise.then(() => resolve());
-    });
+    // the catalog finishes — see boot-loader.ts's openRevealGate.
+    const revealReady = openRevealGate(scene);
 
     revealReady.then(() => {
       if (contextLossGaveUp) {
@@ -2933,6 +2911,10 @@ async function initializeStoreScene(preservePosterCache = false) {
       // You've just come in through the doors — ring the entry chime. (May stay
       // silent if the browser hasn't seen a user gesture yet; that's fine.)
       scene.playDoorChime();
+      // Clock-driven look (store hours + environment-by-clock): apply once the
+      // doors are open, then keep time every 5 minutes (see store-hours.ts).
+      applyClockDrivenLook(scene, new Date().getHours());
+      scheduleClockDrivenLook(() => storeScene);
       triggerHostedWelcome({
         isDemo: isDemoMode,
         isTouch: isTouchInputActive(),
@@ -3489,6 +3471,14 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
         (msg) => logToConsole(msg, 'video'),
         // Report progress to the server that shelved this title (GH #84).
         { url: jellyfinUrl, token },
+        // Kind-aware reports: a Plex title gets Plex writes, a Jellyfin one
+        // keeps Jellyfin's — the runtime rides along so the 90% scrobble and
+        // episode watched-states actually land.
+        {
+          start: () => playbackStarted(jellyfinUrl, token, playbackId, titleKind),
+          progress: (t) => playbackProgressed(jellyfinUrl, token, playbackId, t, false, titleKind),
+          stop: (t) => playbackStopped(jellyfinUrl, token, playbackId, t, durationTicks || movie.runTimeTicks, titleKind),
+        },
       );
       if (started) {
         // The store is behind a fullscreen window now — stop drawing it.
@@ -3554,8 +3544,8 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
   const streams = (overrideItemId ? [] : (version?.mediaStreams ?? movie.mediaStreams)) || [];
   const trackLabel = (s: { displayTitle?: string; language?: string; index: number }) =>
     s.displayTitle || s.language || `Track ${s.index}`;
-  const audioTracks = streams.filter((s) => s.type === 'Audio').map((s) => ({ index: s.index, label: trackLabel(s) }));
-  const subtitleTracks = streams.filter((s) => s.type === 'Subtitle').map((s) => ({ index: s.index, label: trackLabel(s) }));
+  const audioTracks = streams.filter((s) => s.type === 'Audio').map((s) => ({ index: s.index, id: s.id, label: trackLabel(s) }));
+  const subtitleTracks = streams.filter((s) => s.type === 'Subtitle').map((s) => ({ index: s.index, id: s.id, label: trackLabel(s) }));
 
   // Playback preferences (Settings ▸ Playback): resolve the preferred audio
   // language and default-captions state to concrete stream indices BEFORE the
@@ -3596,11 +3586,18 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
   // draws itself — free, instantly switchable, and it leaves direct play
   // intact. Only bitmap subtitles (PGS/DVD/DVB) still have to be burned into
   // the picture, because there is no client renderer for them.
-  const subtitleDelivery = pickSubtitleDelivery(streams, initialSubtitleIndex);
+  // Plex coerces EVERY delivery to burn-in — see coercePlexSubtitleDelivery.
+  const subtitleDelivery = titleKind === 'plex'
+    ? coercePlexSubtitleDelivery(pickSubtitleDelivery(streams, initialSubtitleIndex), streams)
+    : pickSubtitleDelivery(streams, initialSubtitleIndex);
   const subtitleTrackUrl = subtitleDelivery.kind === 'text'
     ? buildSubtitleTrackUrl(jellyfinUrl, token, playbackId, subtitleDelivery.streamIndex, mediaSourceId)
     : undefined;
   const burnInSubtitleIndex = subtitleDelivery.kind === 'burn-in' ? subtitleDelivery.streamIndex : undefined;
+  const burnInSubtitleId = subtitleDelivery.kind === 'burn-in' ? subtitleDelivery.streamId : undefined;
+  // The chosen audio track's backend id (Plex) — resolved beside the index so
+  // the very first stream build selects the track too, not just later switches.
+  const initialAudioId = preferredAudio && preferredAudio.index === initialAudioIndex ? preferredAudio.id : undefined;
 
   // Direct play can't switch audio tracks, and burned-in subtitles are encoded
   // server-side — either forces the HLS transcode path. Text subtitles no
@@ -3612,7 +3609,9 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
       sourceVideoCodec,
       mediaSourceId,
       audioStreamIndex: initialAudioIndex,
+      audioStreamId: initialAudioId,
       subtitleStreamIndex: burnInSubtitleIndex,
+      subtitleStreamId: burnInSubtitleId,
       startPositionTicks: resumeTicks || undefined,
     }, titleKind);
   } catch (e: any) {
@@ -3671,6 +3670,10 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
     // means "bitmap — only a burned-in re-encode can show this", and the
     // player falls back to rebuilding the stream.
     buildSubtitleTrack: (streamIndex) => {
+      // Plex never gets a sidecar URL here — see the coercion above: its
+      // subtitles deliver burn-in through the transcode params, which the
+      // player triggers by receiving null (bitmap path → stream rebuild).
+      if (titleKind === 'plex') return null;
       const d = pickSubtitleDelivery(streams, streamIndex);
       return d.kind === 'text'
         ? buildSubtitleTrackUrl(jellyfinUrl, token, playbackId, d.streamIndex, mediaSourceId)
@@ -3693,7 +3696,7 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
         // The WebGL context died while the movie played; the store behind the
         // player is a dead canvas. Report the stop, then take the reload we
         // deferred instead of "resuming" a frozen scene. Issue #70.
-        playbackStopped(jellyfinUrl, token, playbackId, positionTicks, movie.runTimeTicks, titleKind);
+        playbackStopped(jellyfinUrl, token, playbackId, positionTicks, durationTicks || movie.runTimeTicks, titleKind);
         logToConsole('[System] Applying deferred context-loss reload...', 'system');
         setTimeout(() => location.reload(), 250);
         return;
@@ -3705,7 +3708,7 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
       // STARTING a title, not for continuing one.
       const nextEp = markWatchedAndFindNext(movie, endedNaturally, seriesQueue, playbackId, () => storeScene?.restockSlottedFixtures());
       if (nextEp) {
-        playbackStopped(jellyfinUrl, token, playbackId, positionTicks, movie.runTimeTicks, titleKind);
+        playbackStopped(jellyfinUrl, token, playbackId, positionTicks, durationTicks || movie.runTimeTicks, titleKind);
         logToConsole(`[Video] "${movie.title}" — up next: ${episodeLabel(nextEp)}.`, 'video');
         videoPlayer?.beginTransition(`Up next — ${episodeLabel(nextEp)}`);
         void launchVideoPlayback(movie, nextEp.id, nextEp.path || undefined, false, fromCouch)
@@ -3717,7 +3720,7 @@ export async function launchVideoPlayback(movie: Movie, overrideItemId?: string,
           });
         return;
       }
-      playbackStopped(jellyfinUrl, token, playbackId, positionTicks, movie.runTimeTicks, titleKind);
+      playbackStopped(jellyfinUrl, token, playbackId, positionTicks, durationTicks || movie.runTimeTicks, titleKind);
       finishPlayback(movie, fromCouch);
     },
     onFatalError: () => {
@@ -4216,10 +4219,17 @@ async function main() {
         document.getElementById('screensaver-overlay')!.classList.remove('visible');
         stopScreensaverAnimation();
         // Restore whatever the store was wearing before the closed-dressing
-        // (see onIdle) — only when we actually dressed it down.
+        // (see onIdle) — only when we actually dressed it down. When the clock
+        // drives the look (hours configured), re-run the clock's verdict
+        // instead: the manual saved mode is not authoritative there, and a
+        // store closed for the night must not wake back into daylight.
         if (savedOutsideMode !== null && storeScene) {
           try {
-            storeScene.setOutsideMode(savedOutsideMode);
+            if (storeHoursConfigured()) {
+              applyClockDrivenLook(storeScene, new Date().getHours());
+            } else {
+              storeScene.setOutsideMode(savedOutsideMode);
+            }
             if (savedMarqueeMode) storeScene.setMarqueeAnimMode(savedMarqueeMode);
           } catch { /* best-effort restore */ }
           savedOutsideMode = null;

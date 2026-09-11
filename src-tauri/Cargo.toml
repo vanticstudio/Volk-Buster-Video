@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.1.0"
+version = "2.0.1"
 description = "VolkBuster Video — a 3D video store for your media server"
 authors = ["VolkBuster Video"]
 edition = "2021"

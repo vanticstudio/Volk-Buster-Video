@@ -28,6 +28,8 @@ import {
   reportPlaybackStart,
   reportPlaybackProgress,
   reportPlaybackStopped,
+  stopActiveEncoding,
+  getLastHlsPlaySessionId,
 } from './jellyfin.ts';
 import {
   buildPlexHlsStreamUrl,
@@ -35,6 +37,7 @@ import {
   fetchPlexItemPlaybackInfo,
   reportPlexPlaybackProgress,
   reportPlexPlaybackStopped,
+  stopPlexTranscode,
 } from './plex.ts';
 import { isDirectPlaySafe as codecsAreDirectPlaySafe } from './playback-capability.ts';
 import type { MediaPlaybackInfo } from './providers/media-source-provider.ts';
@@ -48,11 +51,58 @@ import type { MediaPlaybackInfo } from './providers/media-source-provider.ts';
 // exactly as before.
 const isPlex = (kind?: string) => (kind ?? activeProviderKind()) === 'plex';
 
+// ─── The live transcode session ──────────────────────────────────────────────
+//
+// Every transcode URL builder records WHICH session it minted, for which
+// server, on which backend — and the player's teardown asks HERE. This is the
+// fix for a real leak: the player used to read Jellyfin's own
+// lastHlsPlaySessionId (jellyfin.ts records it inside buildHlsStreamUrl) and
+// call Jellyfin's stopActiveEncoding regardless of backend — so on Plex it
+// either stopped a stale Jellyfin session or nothing at all, and every track/
+// quality change on Plex leaked an ffmpeg job until the server's own timeout.
+// The record is (kind, sessionId, server, token): everything the matching
+// teardown needs, captured at the moment the URL was built.
+interface LiveTranscode {
+  kind: 'plex' | 'jellyfin';
+  playSessionId: string;
+  server: string;
+  token: string;
+}
+let lastTranscode: LiveTranscode | undefined;
+
+/** The session the most recently built transcode URL minted, with the
+ *  server+token that own it. Undefined while only direct streams were built. */
+export function getLastTranscodeSession(): LiveTranscode | undefined {
+  return lastTranscode;
+}
+
+/**
+ * Stop the recorded session on the backend that owns it — the player's
+ * teardown (rebuild, close, defensive re-open) funnels here so a Plex encode
+ * is killed with Plex's stop endpoint and a Jellyfin one with its DELETE.
+ * Fire-and-forget by contract: the server-side no-op on a repeat stop is
+ * harmless, and the player's own currentPlaySessionId guard prevents the
+ * double-stop that matters (two changes racing).
+ */
+export function stopLastTranscode(log?: (msg: string) => void): void {
+  if (!lastTranscode) return;
+  const t = lastTranscode;
+  if (t.kind === 'plex') {
+    void stopPlexTranscode(t.server, t.token, t.playSessionId, log).catch(() => {});
+  } else {
+    void stopActiveEncoding(t.playSessionId, log, { url: t.server, token: t.token }).catch(() => {});
+  }
+}
+
 export interface StreamUrlOptions {
   sourceVideoCodec?: string;
   mediaSourceId?: string;
   audioStreamIndex?: number;
   subtitleStreamIndex?: number;
+  /** Backend stream ids (MediaStreamInfo.id) — what Plex's transcoder is
+   *  addressed by. Ignored by the Jellyfin builders. */
+  audioStreamId?: string;
+  subtitleStreamId?: string;
   startPositionTicks?: number;
   maxBitrate?: number;
   maxWidth?: number;
@@ -112,20 +162,27 @@ export async function transcodeStreamUrl(
   kind?: string
 ): Promise<string> {
   if (isPlex(kind)) {
-    // Plex selects audio/subtitle tracks through its own transcode-decision
-    // parameters rather than the stream indices Jellyfin takes; the picker's
-    // per-track switching is Jellyfin-only for now (see the README note).
     const sessionId = `halcyon-${Date.now().toString(36)}`;
     const plexOpts = {
       maxBitrate: opts.maxBitrate,
       startPositionTicks: opts.startPositionTicks,
       mediaSourceId: opts.mediaSourceId,
+      audioStreamId: opts.audioStreamId,
+      subtitleStreamId: opts.subtitleStreamId,
+      subtitleMode: opts.subtitleStreamId ? ('burn' as const) : undefined,
       sessionId,
     };
     await preflightPlexTranscodeDecision(server, token, itemId, sessionId, plexOpts);
-    return buildPlexHlsStreamUrl(server, token, itemId, plexOpts).url;
+    const url = buildPlexHlsStreamUrl(server, token, itemId, plexOpts).url;
+    lastTranscode = { kind: 'plex', playSessionId: sessionId, server, token };
+    return url;
   }
-  return buildHlsStreamUrl(server, token, itemId, opts);
+  const url = buildHlsStreamUrl(server, token, itemId, opts);
+  // buildHlsStreamUrl records the Jellyfin session id internally; capture the
+  // whole thing (backend + owning server) so stopLastTranscode is complete.
+  const sessionId = getLastHlsPlaySessionId();
+  if (sessionId) lastTranscode = { kind: 'jellyfin', playSessionId: sessionId, server, token };
+  return url;
 }
 
 /**
@@ -152,14 +209,22 @@ export function transcodeStreamUrlSync(
       maxBitrate: opts.maxBitrate,
       startPositionTicks: opts.startPositionTicks,
       mediaSourceId: opts.mediaSourceId,
+      audioStreamId: opts.audioStreamId,
+      subtitleStreamId: opts.subtitleStreamId,
+      subtitleMode: opts.subtitleStreamId ? ('burn' as const) : undefined,
       sessionId,
     };
     void preflightPlexTranscodeDecision(server, token, itemId, sessionId, plexOpts).catch((e) => {
       console.warn('[Plex] transcode decision pre-flight failed (mid-playback switch):', e);
     });
-    return buildPlexHlsStreamUrl(server, token, itemId, plexOpts).url;
+    const url = buildPlexHlsStreamUrl(server, token, itemId, plexOpts).url;
+    lastTranscode = { kind: 'plex', playSessionId: sessionId, server, token };
+    return url;
   }
-  return buildHlsStreamUrl(server, token, itemId, opts);
+  const url = buildHlsStreamUrl(server, token, itemId, opts);
+  const sessionId = getLastHlsPlaySessionId();
+  if (sessionId) lastTranscode = { kind: 'jellyfin', playSessionId: sessionId, server, token };
+  return url;
 }
 
 /** Codec/container probe for an item the catalog didn't carry one for. */

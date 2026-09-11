@@ -1,5 +1,6 @@
 import type Hls from 'hls.js';
-import { stopActiveEncoding, getLastHlsPlaySessionId, isStreamCopyUrl } from './jellyfin';
+import { isStreamCopyUrl } from './jellyfin';
+import { getLastTranscodeSession, stopLastTranscode } from './playback-routing';
 import { keyboardOwnedByControl } from './text-entry-focus';
 import { getSegmentFixLoader } from './hls-segment-fix';
 
@@ -35,12 +36,19 @@ const PENDING_SEEK_MAX_MS = 20000;
 export interface TrackChoice {
   /** Jellyfin MediaStream index. */
   index: number;
+  /** The backend's own stream id (MediaStreamInfo.id) — what Plex's transcoder
+   *  addresses tracks by. Undefined on backends that only want the index. */
+  id?: string;
   label: string;
 }
 
 export interface StreamSelection {
   audioStreamIndex?: number;
   subtitleStreamIndex?: number;
+  /** Backend stream ids (TrackChoice.id) — what Plex's transcoder needs.
+   *  Ignored by the Jellyfin builders. */
+  audioStreamId?: string;
+  subtitleStreamId?: string;
   maxBitrate?: number;
   maxWidth?: number;
   /** Absolute item position (ticks) the rebuilt stream should start at. */
@@ -141,6 +149,9 @@ interface MenuRow {
   group?: 'quality' | 'audio' | 'subs';
   /** quality: preset idx; audio/subs: MediaStream index (null = subtitles off). */
   value?: number | null;
+  /** Backend stream id (TrackChoice.id) for audio/subs rows — Plex's
+   *  transcoder is addressed by it. */
+  id?: string;
 }
 
 /**
@@ -261,6 +272,10 @@ export class VideoPlayer {
   private menuIndex = 0;
   private qualityPresetIdx = 0;
   private audioIndex: number | undefined = undefined;
+  // The chosen audio track's backend stream id (TrackChoice.id) — Plex's
+  // transcoder is addressed by this, not the index. Subtitle ids resolve
+  // through subtitleStreamIdFor() from the track list, so they need no field.
+  private audioStreamId: string | undefined = undefined;
   private subtitleIndex: number | null = null;
 
   constructor() {
@@ -1066,7 +1081,7 @@ export class VideoPlayer {
     if (entry?.isHls) {
       // Remember which encode session is now live so a later track/quality
       // change can tell the server to stop it before starting the replacement.
-      this.currentPlaySessionId = getLastHlsPlaySessionId();
+this.currentPlaySessionId = getLastTranscodeSession()?.playSessionId;
     }
     // Restore the playhead once the fresh source is playable. This runs for a
     // full stream swap (audio-restore reload or track/quality change, which
@@ -1390,15 +1405,21 @@ export class VideoPlayer {
     const audio = this.opts?.audioTracks ?? [];
     if (audio.length > 1) {
       rows.push({ kind: 'header', label: 'Audio' });
-      audio.forEach((t) => rows.push({ kind: 'item', label: t.label, group: 'audio', value: t.index }));
+      audio.forEach((t) => rows.push({ kind: 'item', label: t.label, group: 'audio', value: t.index, id: t.id }));
     }
     const subs = this.opts?.subtitleTracks ?? [];
     if (subs.length > 0) {
       rows.push({ kind: 'header', label: 'Subtitles' });
       rows.push({ kind: 'item', label: 'Off', group: 'subs', value: null });
-      subs.forEach((t) => rows.push({ kind: 'item', label: t.label, group: 'subs', value: t.index }));
+      subs.forEach((t) => rows.push({ kind: 'item', label: t.label, group: 'subs', value: t.index, id: t.id }));
     }
     this.menuRows = rows;
+  }
+
+  /** The backend stream id of the subtitle track with this index, if it has
+   *  one (Plex burn-in needs it; Jellyfin ignores it). */
+  private subtitleStreamIdFor(index: number): string | undefined {
+    return this.opts?.subtitleTracks?.find((t) => t.index === index)?.id;
   }
 
   private isRowSelected(row: MenuRow): boolean {
@@ -1437,8 +1458,8 @@ export class VideoPlayer {
   private activateMenuRow(): void {
     const row = this.menuRows[this.menuIndex];
     if (!row || row.kind !== 'item') return;
-    if (row.group === 'quality') this.qualityPresetIdx = row.value as number;
-    else if (row.group === 'audio') this.audioIndex = row.value as number;
+if (row.group === 'quality') this.qualityPresetIdx = row.value as number;
+    else if (row.group === 'audio') { this.audioIndex = row.value as number; this.audioStreamId = row.id; }
     else if (row.group === 'subs') {
       this.subtitleIndex = row.value as number | null;
       // A text subtitle (or turning them off) needs no new stream at all —
@@ -1512,12 +1533,14 @@ export class VideoPlayer {
       maxBitrate: preset.maxBitrate,
       maxWidth: preset.maxWidth,
       audioStreamIndex: this.audioIndex,
+      audioStreamId: this.audioStreamId,
       subtitleStreamIndex: burnIn,
+      subtitleStreamId: burnIn !== undefined ? this.subtitleStreamIdFor(burnIn) : undefined,
     };
     const src = build(sel);
     // Adopt the new session id immediately: a second change before this stream
     // goes live must stop THIS job, not the one before it.
-    this.currentPlaySessionId = getLastHlsPlaySessionId();
+    this.currentPlaySessionId = getLastTranscodeSession()?.playSessionId;
     this.pendingLocalSeekSeconds = resumeAt > 0.5 ? resumeAt : null;
     this.pendingLocalSeekSetAtMs = Date.now();
     this.sources = [{ src, isHls: true }];
@@ -1586,14 +1609,13 @@ export class VideoPlayer {
   /** Fire-and-forget: tell the server to kill the ffmpeg job of the HLS
    *  stream we're abandoning. Every abandon path — rebuild, close(), and a
    *  defensive re-open — funnels through here so at most one encode is ever
-   *  live for this player, and the session id can't be double-stopped. */
+   *  live for this player, and the session id can't be double-stopped. The
+   *  session record (which backend minted it, on which server) lives in
+   *  playback-routing, captured when the URL was built — stopping a Plex
+   *  encode through Jellyfin's DELETE was the leak. */
   private stopCurrentEncode(): void {
     if (!this.currentPlaySessionId) return;
-    void stopActiveEncoding(
-      this.currentPlaySessionId,
-      (msg) => this.log(msg),
-      this.opts?.server ?? null
-    ).catch(() => {});
+    stopLastTranscode((msg) => this.log(msg));
     this.currentPlaySessionId = undefined;
   }
 

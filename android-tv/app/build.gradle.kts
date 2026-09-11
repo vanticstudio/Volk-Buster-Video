@@ -33,8 +33,8 @@ android {
         // guaranteeing a WebView new enough for the viewer's WebRTC stack.
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 21
+        versionName = "2.0.1"
     }
 
     signingConfigs {

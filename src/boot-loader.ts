@@ -24,8 +24,20 @@ export function initBootLoader(): void {
   const viewer = isViewerOnly();
   const loader = document.getElementById('boot-loader');
   const panel = document.getElementById('boot-console-panel');
-  if (loader) loader.hidden = !viewer;
-  if (panel) panel.hidden = viewer;
+  // Explicit display, not the `hidden` attribute alone: .boot-console sets
+  // display:flex, which (author origin) defeats the UA stylesheet's [hidden]
+  // rule — both panels used to render on the public side, which is exactly
+  // what the attribute was supposed to prevent. The viewer sees the friendly
+  // loader ONLY; the owner sees the ops log ONLY. Full detail still reaches
+  // console.log and the dev-console for either.
+  if (loader) {
+    loader.hidden = !viewer;
+    loader.style.display = viewer ? '' : 'none';
+  }
+  if (panel) {
+    panel.hidden = viewer;
+    panel.style.display = viewer ? 'none' : '';
+  }
   if (!viewer || bootFlavorTimer !== null) return;
   bootFlavorTimer = setInterval(() => {
     const el = document.getElementById('boot-flavor');
@@ -57,6 +69,16 @@ export function friendlyBootStatus(message: string): string | null {
   return null; // anything else keeps the current line
 }
 
+/**
+ * Feed a raw [System] line from main.ts's logToConsole: the one call the
+ * log path needs. No-op outside the viewer loader (the owner console shows
+ * the raw log, and the overlay is hidden after boot anyway).
+ */
+export function feedBootLoader(message: string): void {
+  const friendly = friendlyBootStatus(message);
+  if (friendly) setBootStatus(friendly);
+}
+
 export function setBootStatus(text: string): void {
   const el = document.getElementById('boot-status');
   if (el && isViewerOnly()) el.textContent = text;
@@ -65,4 +87,56 @@ export function setBootStatus(text: string): void {
 export function setBootProgress(pct: number): void {
   const el = document.getElementById('boot-progress-fill') as HTMLElement | null;
   if (el && isViewerOnly()) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+
+/**
+ * The texture-load progress hook's viewer half: percent on the bar. main.ts
+ * calls it with every (loaded, total) tick; the log throttling stays there.
+ */
+export function setBootProgressRatio(loaded: number, total: number): void {
+  if (total <= 0) return;
+  setBootProgress((loaded / total) * 100);
+}
+
+/**
+ * Reveal when the shelves are READY ENOUGH, not when the slowest title in
+ * the catalog finishes: one hung poster URL used to hold the whole store
+ * behind the overlay. 90% settled (or 20s, whichever first) opens the
+ * doors; the remaining art streams in via loadShelfDetails exactly as it
+ * does when browsing past an unloaded section today.
+ */
+export function openRevealGate(
+  scene: { onTextureLoadProgress?: ((loaded: number, total: number) => void) | null; texturesReadyPromise: Promise<void> },
+): Promise<void> {
+  const REVEAL_AT_PCT = 90;
+  const REVEAL_TIMEOUT_MS = 20_000;
+  return new Promise<void>((resolve) => {
+    let settledCount = 0;
+    let total = 0;
+    const origProgress = scene.onTextureLoadProgress;
+    scene.onTextureLoadProgress = (loaded, t) => {
+      settledCount = loaded; total = t;
+      origProgress?.(loaded, t);
+      if (total > 0 && (settledCount / total) * 100 >= REVEAL_AT_PCT) resolve();
+    };
+    setTimeout(resolve, REVEAL_TIMEOUT_MS);
+    scene.texturesReadyPromise.then(() => resolve());
+  });
+}
+
+/**
+ * The renderer exists, so the GPU verdict is in. A software-rendered machine
+ * is the answer to "why is the store slow on a good PC" — say so on the
+ * loader while it is still up, in plain words, instead of leaving the verdict
+ * in a console log nobody opens. Called right after the StoreScene builds.
+ */
+export async function warnIfSoftwareGpu(): Promise<void> {
+  try {
+    const { gpuVerdict } = await import('./three-scene');
+    if (gpuVerdict && gpuVerdict.software && isViewerOnly()) {
+      setBootStatus('This device is drawing the store without a graphics card — it will run slowly.');
+    }
+  } catch {
+    // three-scene failed to import — the boot error path reports that anyway.
+  }
 }

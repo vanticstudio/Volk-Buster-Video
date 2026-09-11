@@ -722,6 +722,12 @@ function streamsFromPart(part: any): MediaStreamInfo[] | undefined {
     .filter((s) => s && (s.streamType === 2 || s.streamType === 3))
     .map((s) => ({
       index: typeof s.index === 'number' ? s.index : Number(s.id),
+      // The stream's own id — what Plex's transcoder addresses tracks by
+      // (audioStreamID/subtitleStreamID). The index alone is the per-part
+      // position, which is what the picker displays and what Jellyfin wants;
+      // these are different numbers and confusing them is the no-op that made
+      // audio-track switching silently do nothing.
+      id: s.id !== undefined && s.id !== null ? String(s.id) : undefined,
       type: (s.streamType === 2 ? 'Audio' : 'Subtitle') as 'Audio' | 'Subtitle',
       language: s.language || s.languageTag || undefined,
       displayTitle: s.extendedDisplayTitle || s.displayTitle || undefined,
@@ -1044,6 +1050,15 @@ export interface PlexHlsOpts {
   startPositionTicks?: number;
   mediaSourceId?: string;
   sessionId?: string;
+  /** Plex stream id (MediaStreamInfo.id) of the audio track to select. Plex's
+   *  universal transcoder takes audioStreamID, NOT a position index — passing
+   *  the index was a silent no-op, so the picker's audio switch never moved. */
+  audioStreamId?: string;
+  /** Subtitle stream id for a BURNED-IN track (subtitleMode 'burn'). */
+  subtitleStreamId?: string;
+  /** 'burn' bakes the chosen subtitle into the picture; 'off' keeps the
+   *  default (no subtitleStreamID → container default behaviour). */
+  subtitleMode?: 'burn' | 'off';
 }
 
 /** Shared by buildPlexHlsStreamUrl and preflightPlexTranscodeDecision so the
@@ -1067,6 +1082,14 @@ function plexTranscodeParams(token: string, itemId: string, sessionId: string, o
   if (opts?.maxBitrate) params.set('maxVideoBitrate', String(Math.round(opts.maxBitrate / 1000)));
   if (opts?.startPositionTicks) {
     params.set('offset', String(Math.round(opts.startPositionTicks / TICKS_PER_MS / 1000)));
+  }
+  // Track selection is by stream id (see PlexHlsOpts above). Both params must
+  // ride on the /decision call too — preflightPlexTranscodeDecision shares
+  // this builder, so they do.
+  if (opts?.audioStreamId) params.set('audioStreamID', opts.audioStreamId);
+  if (opts?.subtitleStreamId) {
+    params.set('subtitleStreamID', opts.subtitleStreamId);
+    if (opts.subtitleMode === 'burn') params.set('subtitles', 'burn');
   }
   return params;
 }

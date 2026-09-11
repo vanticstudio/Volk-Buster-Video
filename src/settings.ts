@@ -737,6 +737,28 @@ export function registerCoreSettings(): void {
   });
 
   registerSetting({
+    key: 'bb_store_hours',
+    label: 'Store Hours',
+    kind: 'text',
+    group: 'Store Look',
+    default: '',
+    applyMode: 'live',
+    hint: 'Opening span, 24h clock — "9:00-21:00". Outside it the store dresses down to night. Blank = always open.',
+    subpage: 'Building & Storefront',
+  });
+
+  registerSetting({
+    key: 'bb_clock_env',
+    label: 'Environment Follows the Clock',
+    kind: 'toggle',
+    group: 'Store Look',
+    default: false,
+    applyMode: 'live',
+    hint: 'Day 8-17, sunset 17-19, night otherwise (night while closed). Off keeps the manual Outside setting.',
+    subpage: 'Building & Storefront',
+  });
+
+  registerSetting({
     key: 'bb_marquee_anim',
     label: 'Marquee Animation',
     kind: 'cycle',

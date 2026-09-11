@@ -7,10 +7,13 @@
 // Non-goals: NO telemetry, NO network upload, NO dependencies.
 // All tokens (Plex/Jellyfin/Bearer), IP addresses, URLs, and account/user names are scrubbed.
 
-// Keep in step with package.json's `version`. This drifted to 0.11.1 while
-// the package was at 0.15.0, so every report a user copied into a tracker
-// named a build four releases old.
-export const APP_VERSION = '0.15.0';
+// The version comes from package.json at BUILD time via Vite's define
+// (vite.config.ts). This used to be a hardcoded literal, and it drifted to
+// 0.11.1 while the package was at 0.15.0 — every report a user copied into a
+// tracker named a build four releases old. The server fixed the same class of
+// drift with server/version.ts; this is the client half of that lesson.
+declare const __APP_VERSION__: string;
+export const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
 
 export interface SetupStageRecord {
   name: string;

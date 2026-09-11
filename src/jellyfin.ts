@@ -1406,7 +1406,7 @@ export function isTextSubtitleCodec(codec: string | undefined): boolean {
 export type SubtitleDelivery =
   | { kind: 'none' }
   | { kind: 'text'; streamIndex: number }
-  | { kind: 'burn-in'; streamIndex: number };
+  | { kind: 'burn-in'; streamIndex: number; /** Backend stream id (Plex). */ streamId?: string };
 
 export function pickSubtitleDelivery(
   streams: MediaStreamInfo[] | undefined,
@@ -1419,9 +1419,31 @@ export function pickSubtitleDelivery(
   // that 404s costs one failed request and leaves the film playing, while a
   // needless burn-in costs a re-encode of the entire runtime.
   if (!stream || stream.codec === undefined) return { kind: 'text', streamIndex };
-  return isTextSubtitleCodec(stream.codec)
-    ? { kind: 'text', streamIndex }
+  if (isTextSubtitleCodec(stream.codec)) return { kind: 'text', streamIndex };
+  // The id rides only when the backend reported one — the Jellyfin shape
+  // (no streamId key) stays byte-identical for its deep-equal tests.
+  return stream.id !== undefined
+    ? { kind: 'burn-in', streamIndex, streamId: stream.id }
     : { kind: 'burn-in', streamIndex };
+}
+
+/**
+ * Plex has no verified text-subtitle URL on this fork's Plex path (Jellyfin's
+ * /Videos/<id>/<src>/Subtitles/<i>/0/Stream.vtt has no equivalent pinned
+ * against a live PMS), and pointing the sidecar at a guessed URL 404s
+ * silently and HIDES the captions button — worse than a re-encode. So on Plex
+ * EVERY subtitle delivers burn-in: text-shaped tracks are coerced here so the
+ * stream build carries subtitleStreamID and the transcoder owns rendering.
+ * The upgrade is the real VTT endpoint, which needs a live server to verify;
+ * this is the exact place to add it.
+ */
+export function coercePlexSubtitleDelivery(
+  delivery: SubtitleDelivery,
+  streams: MediaStreamInfo[] | undefined,
+): SubtitleDelivery {
+  if (delivery.kind !== 'text') return delivery;
+  const stream = streams?.find((s) => s.type === 'Subtitle' && s.index === delivery.streamIndex);
+  return { kind: 'burn-in', streamIndex: delivery.streamIndex, streamId: stream?.id };
 }
 
 /**

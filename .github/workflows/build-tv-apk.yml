@@ -9,7 +9,7 @@ name: Build Android TV APK
 
 on:
   push:
-    branches: [master, dev]
+    branches: [main]
     paths: ['android-tv/**', '.github/workflows/build-tv-apk.yml']
   pull_request:
     paths: ['android-tv/**', '.github/workflows/build-tv-apk.yml']
@@ -55,7 +55,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: halcyon-tv-apk
+          name: volkbuster-tv-apk
           path: |
             android-tv/app/build/outputs/apk/debug/*.apk
             android-tv/app/build/outputs/apk/release/*.apk

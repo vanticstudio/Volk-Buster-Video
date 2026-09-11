@@ -370,6 +370,14 @@ export function createFrontDoor(
     if (now() - stored.lastValidatedAt < cfg.revalidateAfterMs) return true;
 
     const resources = await fetchResources(token, identity);
+    // plex.tv unreachable: the re-check cannot answer whether sharing changed,
+    // and an unanswered question is NOT a revocation. Keep the session — it
+    // re-checks on a later request. (Sign-in still fails closed below; only
+    // the destructive wipe needs this guard.)
+    if (resources === null) {
+      console.warn(`[front-door] revalidate: could not reach plex.tv for ${uid} — keeping the session`);
+      return true;
+    }
     if (!grantsAccessTo(resources, cfg.plexMachineId)) {
       // Every session this person holds goes, not just the one that happened to
       // make this request — otherwise their other tab keeps working.
@@ -459,6 +467,7 @@ export function createFrontDoor(
           // somebody else's library, and gating on a server you do not own
           // would hand its owner the ability to lock you out by unsharing.
           const resources = await fetchResources(tok, identity);
+          if (resources === null) return json(res, 502, { error: 'Could not reach plex.tv to list your servers — try again in a moment.' });
           const servers = (Array.isArray(resources) ? resources : [])
             .filter((r) => r && r.owned === true && typeof r.provides === 'string'
               && r.provides.split(',').some((x: string) => x.trim() === 'server'))
@@ -474,6 +483,7 @@ export function createFrontDoor(
           // browser could send anything, and this is the one write that decides
           // what the whole gate checks against forever after.
           const resources = await fetchResources(setupToken, identity);
+          if (resources === null) return json(res, 502, { error: 'Could not reach plex.tv to verify ownership — try again.' });
           const owns = resources.some((r) => r && r.clientIdentifier === machineId && r.owned === true);
           if (!machineId || !owns) return json(res, 403, { error: 'You do not own that server.' });
 
@@ -529,6 +539,7 @@ export function createFrontDoor(
           fetchResources(token, identity),
         ]);
         if (!account) return json(res, 502, { error: 'could not read your Plex account' });
+        if (resources === null) return json(res, 502, { error: 'Could not reach plex.tv to check your access — try again in a moment.' });
 
         // The gate. A valid Plex login is NOT enough — anyone can make a Plex
         // account. This asks whether the owner shared this server with them.

@@ -4522,15 +4522,23 @@ export class StoreScene {
       this.lastUpdateTime = time;
       this.bobAmount = 0; // not walking — drop any residual head-bob so it can't
                           // pin the ACTIVE tier or bias the parked eye height
+      // Frame-rate-compensated glide (same shape as the slot popLerp below):
+      // cameraGlideLerp was tuned per-60Hz-frame, so a slow frame — a ~1s
+      // software composite, or any hitch mid-glide — used to cover the
+      // equivalent of one 16ms frame and the settle took the same ~20 FRAMES
+      // regardless of wall time, while a 144Hz panel finished the glide 2.4x
+      // faster than 60Hz. Solved per frame: the glide takes constant wall
+      // time whatever the display does.
+      const glideLerp = 1 - Math.pow(1 - this.cameraGlideLerp, framesElapsed);
       if (this.returnDropWatch && !(this.entrance && this.entrance.isReturnDropActive())) {
         this.returnDropWatch = false; // ritual over — release to the real target
       }
       if (this.returnDropWatch) {
-        this.currentCameraPos.lerp(this.returnDropWatchPos, this.cameraGlideLerp);
-        this.currentLookAt.lerp(this.returnDropWatchLook, this.cameraGlideLerp);
+        this.currentCameraPos.lerp(this.returnDropWatchPos, glideLerp);
+        this.currentLookAt.lerp(this.returnDropWatchLook, glideLerp);
       } else {
-        this.currentCameraPos.lerp(this.targetCameraPos, this.cameraGlideLerp);
-        this.currentLookAt.lerp(this.targetLookAt, this.cameraGlideLerp);
+        this.currentCameraPos.lerp(this.targetCameraPos, glideLerp);
+        this.currentLookAt.lerp(this.targetLookAt, glideLerp);
       }
       this.camera.position.copy(this.currentCameraPos);
       this.camera.lookAt(this.currentLookAt);
@@ -6044,12 +6052,17 @@ export class StoreScene {
 
   // First Person Walk Around Mode handlers
   private handleWalkKeyDown = (e: KeyboardEvent) => {
-    this.requestRender();
     if (!this.isWalkAroundMode) return;
 
+    // Typing in a DOM control (search, settings rows, login) must not wake
+    // the compositor: this used to call requestRender() BEFORE the guards,
+    // so every keystroke anywhere — search-as-you-type included — fired three
+    // full composites against a canvas that was covered anyway.
     if (keyboardOwnedByControl()) {
       return;
     }
+
+    this.requestRender();
 
     switch (e.key) {
       case 'w':
@@ -6091,10 +6104,12 @@ export class StoreScene {
     }
   };
 
-  private handleWalkKeyUp = (e: KeyboardEvent) => {
-    this.requestRender();
+private handleWalkKeyUp = (e: KeyboardEvent) => {
     if (!this.isWalkAroundMode) return;
-
+    // Clear the key state REGARDLESS of who owns the keyboard — a movement key
+    // held when the user opened search must not keep the store walking after
+    // they close it. The wake is what stays guard-first: keys owned by a DOM
+    // control (or any non-walk key) must not cost three composites.
     switch (e.key) {
       case 'w':
       case 'W':
@@ -6124,7 +6139,13 @@ export class StoreScene {
       case 'ArrowRight':
         this.walkKeys.ArrowRight = false;
         break;
+      default:
+        return; // not a walk key — no wake for volume/media/F-keys
     }
+    // A real walk key released: repaint only when a DOM control doesn't own
+    // the keyboard (a key released mid-typing is already cleared above; the
+    // walk sim is paused behind the overlay and repaints on close).
+    if (!keyboardOwnedByControl()) this.requestRender();
   };
 
   private handlePointerLockChange = () => {

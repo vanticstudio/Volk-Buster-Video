@@ -1,0 +1,68 @@
+# Creates the GitHub Release for a pushed v*.*.* tag.
+#
+# WHY THIS EXISTS: the management console's update manager (server/
+# update-manager.ts) checks `releases?per_page=1` on this repo — but nothing
+# created releases, so the check returned "up to date" forever and the
+# console's Update button could never fire. publish-image.yml CONSUMES v*
+# tags (builds the Docker image for them) but never created them; this
+# workflow is the other half.
+#
+# THE RELEASE ITSELF IS A TAG, CUT BY HAND: bump package.json (the single
+# version source both server/version.ts and vite's __APP_VERSION__ read),
+# commit, then:
+#
+#   git tag v2.0.2 && git push origin v2.0.2
+#
+# The tag triggers BOTH workflows: this one writes the release (auto-generated
+# notes from commits since the last tag), publish-image.yml builds the
+# containers. Release notes start from the tag's own generated notes — the
+# CHANGELOG stays hand-maintained per its header.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # A release tag must actually pass the battery. Same order as ci.yml;
+      # failing here stops the release before anything is published.
+      - name: Install
+        run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: Gates + typechecks + build
+        run: npm run build
+
+      - name: Guard the tag against package.json
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME is $TAG_VERSION but package.json says $PKG_VERSION."
+            echo "Cut releases from a package.json that matches — bump it, commit, retag."
+            exit 1
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag

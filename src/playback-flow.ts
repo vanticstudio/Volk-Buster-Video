@@ -144,6 +144,18 @@ export function isMpvNaturalFinish(positionTicks: number, durationTicks: number)
  * Returns false when the local endpoint isn't reachable (production bundle,
  * no dev/preview server) so the caller can fall back to in-app streaming.
  */
+// How the caller wants this playback reported to its server. main.ts builds
+// one from playback-routing's kind-aware functions so mpv reports Plex-shaped
+// writes to a Plex box — routing Jellyfin's POST /Sessions/Playing* at Plex
+// was a silent 404 storm that left the flagship local path with no resume
+// point and no scrobble at all. Optional so the module stays loadable under
+// node --test (settings.ts-style lazy imports stay out of the hot path).
+export interface PlaybackReport {
+  start(): void;
+  progress(positionTicks: number): void;
+  stop(positionTicks: number): void;
+}
+
 export async function playLocalWithMpv(
   filePath: string,
   itemId: string,
@@ -158,7 +170,11 @@ export async function playLocalWithMpv(
    *  install, and for anything synthesized. Kept as a plain pair rather than a
    *  media-sources import so this module stays loadable under `node --test`'s
    *  type-stripping loader (see the .ts specifiers above). */
-  reportTo?: { url: string | null; token: string | null } | null
+  reportTo?: { url: string | null; token: string | null } | null,
+  /** Kind-aware report sink (main.ts wires it to playback-routing). When
+   *  absent the legacy Jellyfin-shaped reports below run — unchanged for
+   *  Jellyfin, still a no-op-with-404s on Plex, which is why the sink exists. */
+  report?: PlaybackReport
 ): Promise<boolean> {
   const jellyfinUrl = reportTo ? reportTo.url : localStorage.getItem('jellyfin_url');
   const token = reportTo ? reportTo.token : localStorage.getItem('jellyfin_token');
@@ -182,7 +198,8 @@ export async function playLocalWithMpv(
   }
 
   log(`[Video] Playing off disk in mpv (from ${startSeconds}s).`);
-  if (jellyfinUrl && token) reportPlaybackStart(jellyfinUrl, token, itemId);
+  if (report) report.start();
+  else if (jellyfinUrl && token) reportPlaybackStart(jellyfinUrl, token, itemId);
 
   // Poll for position so Continue Watching still tracks, and so closing mpv
   // returns to the store the same way the in-app player's Back does.
@@ -194,12 +211,14 @@ export async function playLocalWithMpv(
       const s = await res.json();
       lastTicks = Math.round((s.position ?? 0) * TICKS_PER_SECOND);
       if (!s.exited) {
-        if (jellyfinUrl && token) reportPlaybackProgress(jellyfinUrl, token, itemId, lastTicks, false);
+        if (report) report.progress(lastTicks);
+        else if (jellyfinUrl && token) reportPlaybackProgress(jellyfinUrl, token, itemId, lastTicks, false);
         return;
       }
       window.clearInterval(poll);
       if (s.error) log(`[Video] mpv error: ${s.error}`);
-      if (jellyfinUrl && token) reportPlaybackStopped(jellyfinUrl, token, itemId, lastTicks);
+      if (report) report.stop(lastTicks);
+      else if (jellyfinUrl && token) reportPlaybackStopped(jellyfinUrl, token, itemId, lastTicks);
       onExit(lastTicks, isMpvNaturalFinish(lastTicks, durationTicks));
     } catch {
       // Endpoint vanished (server restarted) — stop polling rather than spin.

@@ -3,6 +3,10 @@ import { defineConfig } from "vite";
 // (not installed; vite.config.ts is outside tsconfig's "include" so this never
 // hits the `npm run build` gate, only editor intellisense).
 import * as fs from "node:fs";
+// @ts-expect-error node:fs/node:path have no type declarations without @types/node
+// (not installed; vite.config.ts is outside tsconfig's "include" so this never
+// hits the `npm run build` gate, only editor intellisense).
+import * as fs from "node:fs";
 // @ts-expect-error see above
 import * as path from "node:path";
 // @ts-expect-error see above
@@ -572,6 +576,13 @@ function hostGuardPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  // __APP_VERSION__ is the build-time hook the client's failure reports read
+  // (src/setup-failure-report.ts). Substituted from package.json so there is
+  // ONE version source; the literal that used to sit in that file drifted
+  // once already and cost every bug report its true build number.
+  define: {
+    __APP_VERSION__: JSON.stringify(JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? 'dev'),
+  },
   plugins: [
     // First: everything below it answers only to an allowed Host header.
     hostGuardPlugin(),

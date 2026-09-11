@@ -91,7 +91,9 @@ export async function checkForUpdates(now: () => number = Date.now): Promise<Upd
     return info;
   } catch (err) {
     const info: UpdateInfo = { ...base, error: err instanceof Error ? err.message : String(err) };
-    cached = info;
+    // NOT cached. A transient GitHub 403/timeout cached for the full TTL hid
+    // "update available" for an hour; a failed check just retries on the next
+    // console load. Only a SUCCESSFUL check earns the TTL.
     return info;
   }
 }
@@ -112,6 +114,12 @@ export function updateAvailable(): boolean {
   return existsSync(UPDATE_SCRIPT);
 }
 
+// An update that runs this long has wedged (a docker build stuck on a dead
+// network is the classic): mark the job failed so the console stops polling
+// and the owner can try again, rather than the single-flight job blocking
+// every future apply until the process restarts.
+const UPDATE_JOB_TIMEOUT_MS = 20 * 60_000;
+
 export function startUpdate(now: () => number = Date.now): UpdateJob {
   if (currentJob && !currentJob.done) return currentJob;
   const job: UpdateJob = {
@@ -127,6 +135,13 @@ export function startUpdate(now: () => number = Date.now): UpdateJob {
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  const timeout = setTimeout(() => {
+    if (job.done) return;
+    job.log += `\nupdate aborted: no exit within ${Math.round(UPDATE_JOB_TIMEOUT_MS / 60_000)} minutes (killed — the build likely wedged)`;
+    job.done = true;
+    job.ok = false;
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+  }, UPDATE_JOB_TIMEOUT_MS);
   const append = (chunk: Buffer) => {
     job.log += chunk.toString('utf8');
     if (job.log.length > 64 * 1024) job.log = job.log.slice(-64 * 1024);
@@ -134,10 +149,12 @@ export function startUpdate(now: () => number = Date.now): UpdateJob {
   child.stdout.on('data', append);
   child.stderr.on('data', append);
   child.on('close', (code) => {
+    clearTimeout(timeout);
     job.done = true;
     job.ok = code === 0;
   });
   child.on('error', (err) => {
+    clearTimeout(timeout);
     job.done = true;
     job.ok = false;
     job.log += `\nspawn failed: ${err.message}`;

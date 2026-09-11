@@ -3075,6 +3075,15 @@ html, body {
   pointer-events: none !important;
 }
 
+/* The universal hidden semantic. Author-origin display rules (e.g.
+   .boot-console's display:flex) defeat the UA stylesheet's bare [hidden]
+   rule, which is how the boot overlay's ops-log panel managed to render on
+   the public side with its hidden attribute set. !important matches the
+   admin page's CSS, which has carried this exact rule from the start. */
+[hidden] {
+  display: none !important;
+}
+
 /* ── CLOSED-FOR-THE-NIGHT screensaver card ──────────────────────────────────
    Shown instead of the bouncing DVD logo when bb_closed_mode is on. Same
    opaque overlay, same zero-WebGL cost: this is DOM only. The 1993-POS look

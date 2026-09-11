@@ -42,6 +42,8 @@ let realFetch: typeof globalThis.fetch;
 /** What our fake plex.tv will say about the caller's servers. */
 let stubResources: unknown[] = [];
 let stubToken: string | null = 'a-plex-token';
+/** What HTTP status the fake plex.tv answers /api/v2/resources with. */
+let stubResourcesStatus = 200;
 
 function stubPlex(): typeof globalThis.fetch {
   return (async (input: string | URL | Request) => {
@@ -52,7 +54,12 @@ function stubPlex(): typeof globalThis.fetch {
     if (url.includes('/api/v2/pins/')) return ok({ authToken: stubToken });
     if (url.includes('/api/v2/pins')) return ok({ id: 1234, code: 'STRONGCODE' });
     if (url.includes('/api/v2/user')) return ok({ id: 42, username: 'alice' });
-    if (url.includes('/api/v2/resources')) return ok(stubResources);
+    if (url.includes('/api/v2/resources')) {
+      if (stubResourcesStatus === 200) return ok(stubResources);
+      return new Response(JSON.stringify({ error: 'plex.tv down' }), {
+        status: stubResourcesStatus, headers: { 'content-type': 'application/json' },
+      });
+    }
     throw new Error(`unexpected fetch in test: ${url}`);
   }) as typeof globalThis.fetch;
 }
@@ -61,6 +68,7 @@ beforeEach(async () => {
   realFetch = globalThis.fetch;
   globalThis.fetch = stubPlex();
   stubToken = 'a-plex-token';
+  stubResourcesStatus = 200;
   stubResources = [{ clientIdentifier: MACHINE, provides: 'server', owned: false, home: false }];
 
   db = new FrontDoorStore(':memory:', cfg.tokenKey);
@@ -575,4 +583,61 @@ test('the gate stays out of search results', async () => {
   // second, and noindex is what keeps them apart.
   const { body } = await raw('/', { accept: 'text/html', host: 'store.example.com' });
   assert.match(body, /name="robots" content="noindex, nofollow"/);
+});
+
+// ─── Re-validation must not be destructive on a plex.tv outage ───────────────
+
+test('a plex.tv outage during re-validation keeps the session', async () => {
+  // The once-a-day re-check treats an unanswered question as neither a yes
+  // nor a revocation. The regression this pins: fetchResources used to
+  // collapse "network error" into "empty list", and empty meant "revoked" —
+  // one plex.tv 5xx deleted every session and told the viewer their access
+  // was removed, which was a lie.
+  const { cookie } = await signIn();
+  assert.ok(cookie);
+  // Force the re-check window: backdate lastValidatedAt past revalidateAfterMs.
+  const sid = JSON.parse(Buffer.from(cookie!.split('=')[1].split('.')[0], 'base64url').toString()).sid;
+  db.touchSession(sid, NOW - 25 * 3600_000);
+
+  stubResourcesStatus = 503; // plex.tv unreachable
+  const res = await realFetch(`${base}/api/me`, { headers: { cookie: cookie! } });
+  assert.equal(res.status, 200, 'an unanswered re-check must keep the session');
+
+  // The failure must not have been silently treated as "still valid" forever
+  // either: the next check after plex.tv heals must still run.
+  stubResourcesStatus = 200;
+  stubResources = [{ clientIdentifier: MACHINE, provides: 'server', owned: false, home: false }];
+  const again = await realFetch(`${base}/api/me`, { headers: { cookie: cookie! } });
+  assert.equal(again.status, 200, 'healed plex.tv with access intact keeps the session');
+});
+
+test('a plex.tv outage at SIGN-IN fails closed with an honest error', async () => {
+  stubResourcesStatus = 503;
+  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const res = await realFetch(`${base}/auth/claim`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 1234 }),
+  });
+  assert.equal(res.status, 502, 'sign-in must refuse when the gate cannot be evaluated');
+  assert.match((await res.json()).error, /reach plex\.tv/i, 'the error must not claim a permission problem');
+});
+
+test('a real revocation still wipes sessions at re-validation', async () => {
+  const { cookie } = await signIn();
+  const sid = JSON.parse(Buffer.from(cookie!.split('=')[1].split('.')[0], 'base64url').toString()).sid;
+  db.touchSession(sid, NOW - 25 * 3600_000);
+
+  // ANSWERED empty — the person genuinely has nothing shared with them now.
+  stubResources = [];
+  const res = await realFetch(`${base}/api/me`, { headers: { cookie: cookie! } });
+  assert.equal(res.status, 403, 'an answered no must still revoke');
+  assert.match((await res.json()).error, /removed/i, 'the message is now honest: only real revocations reach it');
+
+  // The wipe is not a lockout: a person who was re-shared can sign straight
+  // back in, which is what makes the owner's revoke lever safe to pull.
+  stubResources = [{ clientIdentifier: MACHINE, provides: 'server', owned: false, home: false }];
+  const reSignIn = await signIn();
+  assert.equal(reSignIn.status, 200);
+  assert.ok(reSignIn.cookie, 'a re-shared person can sign straight back in');
 });

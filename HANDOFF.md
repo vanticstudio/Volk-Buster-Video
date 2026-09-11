@@ -3,11 +3,51 @@
 > **Read this first if you're picking up the session.** It captures what's done,
 > what's queued, the exact integration points, and the traps already hit.
 
-## Status: QUEUE COMPLETE (this session built items 1–7 below)
+## Status: front-to-back audit run; items 1–4 + 6 SHIPPED AND VERIFIED; items 5 + 7 STAGED
 
-Everything in the "queue" section of the original handoff is now DONE and
-verified: 676/676 tests, both typechecks, all three custom gates, file budget,
-and the full `npm run build` (3.1s, clean).
+A full audit (6 parallel agents) produced a ranked findings list; the top items
+were built this round. All verified: **684/684 tests**, both tsc, all three
+gates, provider boundary (updated ALLOWED), full `npm run build` 3.1s clean.
+
+### What this round added
+
+| Change | Files | What it does |
+|---|---|---|
+| plex.tv outage ≠ revocation | `server/plex-client.ts`, `server/index.ts`, `server/admin.ts`, `server/plex-connection.ts`, `tests/front-door-http.test.ts` (+3 tests) | `fetchResources` returns `null` when unanswered (vs `[]` = genuinely nothing). Re-validation keeps sessions on outage; sign-in fails closed with an honest 502. All plex.tv calls get 10s timeouts. |
+| Plex transcode teardown | `src/playback-routing.ts`, `src/video-player.ts` | Mint-time session record (`getLastTranscodeSession`/`stopLastTranscode`); the player tears down Plex encodes with Plex's stop endpoint — was Jellyfin-shaped 404s, leaking ffmpeg jobs per track change. |
+| Plex audio switching | `src/plex.ts` (`audioStreamID`), `MediaStreamInfo.id`, `TrackChoice.id`, `StreamSelection`/`StreamUrlOptions` ids, player menu rows | Plex transcoder is addressed by stream ID not index — the picker's audio switch was a silent no-op. |
+| Episode scrobble + mpv→Plex reports | `src/main.ts`, `src/playback-flow.ts` (`PlaybackReport` sink) | Episode runtime rides `playbackStopped` (was `movie.runTimeTicks`, undefined for series → episodes never marked watched); mpv reports go through kind-aware routing (was Jellyfin POSTs at Plex). |
+| Plex subtitles | `src/main.ts` via `coercePlexSubtitleDelivery` (jellyfin.ts) | Plex burns ALL subtitles (text coerced to burn-in — no verified VTT endpoint; the exact upgrade spot is marked in jellyfin.ts). Burn-in params in `plexTranscodeParams`. |
+| Release workflow | `.github/workflows/release.yml` (new) | On `v*.*.*` tag: tests+gates, tag==package.json guard, publishes the GitHub Release. **The update manager had nothing to check — zero releases existed.** Cut: bump package.json, `git tag v… && git push origin v…`. |
+| CI on PR | `.github/workflows/ci.yml` (new) | PRs run tests + both typechecks + all gates + build. |
+| Version reconciliation | `package.json`→2.0.1, Tauri conf/Cargo, Android versionName/Code, APK artifact → `volkbuster-tv-apk`, APK workflow trigger `master,dev`→`main` | Client version now from package.json via Vite `define` (`__APP_VERSION__`); the literal in `setup-failure-report.ts` drifted once already. |
+| Update-manager hardening | `server/update-manager.ts` | Errored checks no longer cached an hour; hung `update.sh` killed at 20 min so the single-flight job can't wedge forever. |
+| Glide frame-rate compensation | `src/three-scene.ts` | Glide lerp solved per frame via `framesElapsed` (same shape as popLerp) — slow frames no longer stretch the settle to ~20 multi-second composites. |
+| Walk-key wake guards | `src/three-scene.ts` | `handleWalkKeyDown/Up` guard before waking — typing in search/settings no longer costs 3 composites per keystroke; keyup still clears held keys (no stuck-walk), wakes only for real walk keys. |
+| Store hours + clock env | `src/store-hours.ts` (new), `src/settings.ts` + console rows, `tests/store-hours.test.ts` (5 tests) | `bb_store_hours` ("9:00-21:00", midnight-crossing OK) + `bb_clock_env`: closed→night, open→day/sunset/night by hour; 5-min scheduler; screensaver restore respects the clock. |
+
+### Staged for a FRESH session (deliberately not started here)
+
+- **On-screen keyboard** (audit G1): setup text fields, search, clerk chat are
+  unreachable on TV remote/touch. One CRT-styled QWERTY component covers all;
+  the desk CRT (`setTerminalText`) is the surface. Big but self-contained.
+- **Spine text + boxart fallback** (the two biggest visual wins): spine strips
+  are a new texture-array channel in `video-case.ts` — which sits at **5988/6000
+  budget lines**; extract first. Boxart fallback: `PosterLoadingQueue.load`
+  bails when `!posterUrl` (`video-case.ts:1785`) → artless Plex titles render
+  as flat `#0f172a`; a procedural typed-cover (title/genre/year, like
+  `game-carton-art.ts`) feeds the existing decode/stamp path.
+
+### Earlier audit-fix waves (all shipped, committed)
+
+The "queue complete" table below covers the FIRST feature wave (update manager,
+boot loader, chime variants, closed-mode saver, perf diagnostic, etc. — all
+committed). The full audit findings list (server security, playback gaps,
+visual wins, flow gaps, housekeeping — each with file:line) is in the session
+record; top unfixed items beyond the staged two: remote-play middleware
+reachable by viewers (audit #7), admin CSRF Origin check, IndexedDB poster
+cache caps, Plex catalog sync pagination, Continue Watching surface,
+prefers-reduced-motion, trunk of letterboxd integration.
 
 ### What this session added (on top of the table below)
 

@@ -1,0 +1,55 @@
+# CI on every pull request (and every push to main, as the last line of
+# defense for direct pushes). Runs the whole battery the repo's own build
+# gate runs — tests, both typechecks, and the three custom gates — so a PR
+# can no longer break any of it with zero signal.
+#
+# This did not exist for the fork's first stretch: the gates only ran inside
+# the Docker image build, on pushes to main only. A PR could break all 676
+# tests without CI noticing.
+#
+# Node 22.6+ is the engines floor (the test runner needs type stripping;
+# see package.json and the README).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck (client)
+        run: npx tsc --noEmit
+
+      - name: Typecheck (server)
+        run: npx tsc -p server --noEmit
+
+      - name: Tests
+        run: npm test
+
+      - name: File budgets
+        run: node tools/check-file-budget.mjs
+
+      - name: Provider boundary
+        run: node tools/check-provider-boundary.mjs
+
+      - name: Signage slots
+        run: node tools/list-slots.mjs --check
+
+      - name: Full build
+        run: npm run build

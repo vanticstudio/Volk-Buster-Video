@@ -17,6 +17,13 @@ import type { PlexResource } from './plex-gate.ts';
 
 const PLEX_TV = 'https://plex.tv';
 
+// Every plex.tv/server call gets a hard deadline. Without one, a hung plex.tv
+// (or a wedged server behind a NAT) holds the caller — which is a viewer's
+// request path on revalidation and the console's page load — for undici's
+// 300s default. 10s is generous for an API round trip and short enough that
+// a stuck call reads as an outage, not a hang.
+const PLEX_TV_TIMEOUT_MS = 10_000;
+
 /** Identifies this application to plex.tv. Shown in the user's device list. */
 export interface PlexClientIdentity {
   /** Stable per-install id. Plex keys session eviction off this — see below. */
@@ -66,6 +73,7 @@ export async function createPin(identity: PlexClientIdentity): Promise<PlexPin> 
   const res = await fetch(`${PLEX_TV}/api/v2/pins?strong=true`, {
     method: 'POST',
     headers: plexHeaders(identity),
+    signal: AbortSignal.timeout(PLEX_TV_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`plex.tv refused a pin request: ${res.status}`);
   const body = await res.json() as { id: number; code: string };
@@ -91,6 +99,7 @@ export async function createPin(identity: PlexClientIdentity): Promise<PlexPin> 
 export async function claimPin(id: number, identity: PlexClientIdentity): Promise<string | null> {
   const res = await fetch(`${PLEX_TV}/api/v2/pins/${id}`, {
     headers: plexHeaders(identity),
+    signal: AbortSignal.timeout(PLEX_TV_TIMEOUT_MS),
   });
   if (!res.ok) return null;
   const body = await res.json() as { authToken: string | null };
@@ -104,7 +113,7 @@ export interface PlexAccount {
 }
 
 export async function fetchAccount(token: string, identity: PlexClientIdentity): Promise<PlexAccount | null> {
-  const res = await fetch(`${PLEX_TV}/api/v2/user`, { headers: plexHeaders(identity, token) });
+  const res = await fetch(`${PLEX_TV}/api/v2/user`, { headers: plexHeaders(identity, token), signal: AbortSignal.timeout(PLEX_TV_TIMEOUT_MS) });
   if (!res.ok) return null;
   const body = await res.json() as { id: number | string; username?: string; title?: string };
   if (body?.id === undefined || body.id === null) return null;
@@ -114,21 +123,28 @@ export async function fetchAccount(token: string, identity: PlexClientIdentity):
 /**
  * Every server this token can reach — the input to the access gate.
  *
- * On any failure this returns an EMPTY list rather than throwing. Combined with
- * `grantsAccessTo`, that means a plex.tv outage refuses entry instead of
- * granting it: the whole gate is "can this account reach my server", and an
- * unanswered question is not a yes.
+ * THREE-WAY, and the distinction is load-bearing:
+ *   - a non-empty array — answered: the account reaches those servers.
+ *   - an EMPTY array — answered: the account reaches nothing (revoked,
+ *     fresh account). Fail-closed is correct wherever a yes/no is required.
+ *   - NULL — the question could NOT be answered (network error, non-200,
+ *     malformed body). Callers on the sign-in path fail closed with an
+ *     honest "plex.tv unreachable" error; the SESSION re-validation path
+ *     must treat null as "keep the session" — an unanswered question is not
+ *     a revocation, and wiping someone's sessions because plex.tv 500'd is
+ *     the destructive bug this distinction exists to prevent.
  */
-export async function fetchResources(token: string, identity: PlexClientIdentity): Promise<PlexResource[]> {
+export async function fetchResources(token: string, identity: PlexClientIdentity): Promise<PlexResource[] | null> {
   try {
     const res = await fetch(`${PLEX_TV}/api/v2/resources?includeHttps=1&includeRelay=1`, {
       headers: plexHeaders(identity, token),
+      signal: AbortSignal.timeout(PLEX_TV_TIMEOUT_MS),
     });
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const body = await res.json();
-    return Array.isArray(body) ? body as PlexResource[] : [];
+    return Array.isArray(body) ? body as PlexResource[] : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -158,6 +174,7 @@ export async function listPlexLibraries(
   try {
     const res = await fetch(`${serverUrl.replace(/\/$/, '')}/library/sections`, {
       headers: { Accept: 'application/json', 'X-Plex-Token': token },
+      signal: AbortSignal.timeout(PLEX_TV_TIMEOUT_MS),
     });
     if (!res.ok) return [];
     const body = await res.json() as { MediaContainer?: { Directory?: Array<Record<string, unknown>> } };

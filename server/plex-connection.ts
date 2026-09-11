@@ -91,6 +91,9 @@ export async function connectionForViewer(
 ): Promise<StoreConnection | null> {
   if (!viewerToken || !machineId) return null;
   const resources = await fetchResources(viewerToken, identity);
+  // plex.tv unreachable: no connection this request (a read path — callers
+  // already handle null as "no connection"), never a wrong one.
+  if (!resources) return null;
 
   const server = resources.find((r) => {
     if (!r || r.clientIdentifier !== machineId) return false;

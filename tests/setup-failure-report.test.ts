@@ -80,7 +80,11 @@ test('report builder: formats app version, server info, library list, failing st
 
   const report = getLastSetupReport();
   assert.match(report, /=== VolkBuster Setup Failure Report ===/);
-  assert.match(report, /App: VolkBuster 0\.15\.0/);
+  // The version is injected at BUILD time (vite define from package.json — see
+// setup-failure-report.ts); under node --test there is no build, so the
+// 'dev' fallback runs. Assert the line's SHAPE, not a literal — pinning a
+// number here is exactly how the old literal drifted unnoticed.
+  assert.match(report, /App: VolkBuster \S+/);
   assert.match(report, /Server: Plex Media Server \(v1\.40\.2, relay: false\)/);
   assert.match(report, /Libraries \(3 found, 2 carried\):/);
   assert.match(report, /  - Movies, movie, carried/);

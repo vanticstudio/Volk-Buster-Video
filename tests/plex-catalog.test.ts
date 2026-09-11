@@ -609,7 +609,11 @@ test('Plex sync failure produces a scrubbed report with stage timings and server
 
   const report = getLastSetupReport();
   assert.match(report, /=== VolkBuster Setup Failure Report ===/);
-  assert.match(report, /App: VolkBuster 0\.15\.0/);
+  // The version is injected at BUILD time (vite define from package.json — see
+// setup-failure-report.ts); under node --test there is no build, so the
+// 'dev' fallback runs. Asserting the line's SHAPE rather than a literal is
+// the point: pinning 0.15.0 here is how that literal drifted unnoticed.
+  assert.match(report, /App: VolkBuster \S+/);
   assert.match(report, /Server: Plex Media Server \(v1\.40\.1\.8227, relay: false\)/);
   assert.match(report, /Libraries \(2 found, 2 carried\):/);
   assert.match(report, /  - Movies, carried/);

@@ -54,6 +54,7 @@ const ALLOWED = {
       'isHevcPassThroughEnabled',
       'buildSubtitleTrackUrl',
       'pickSubtitleDelivery',
+      'coercePlexSubtitleDelivery',
       'collectionTmdbIds',
       'collectionSyncStats',
     ],
@@ -75,16 +76,18 @@ const ALLOWED = {
       'reportPlaybackStart',
       'reportPlaybackProgress',
       'reportPlaybackStopped',
+      'stopActiveEncoding',
+      'getLastHlsPlaySessionId',
     ],
-    why: 'this file IS the per-backend router — it imports both jellyfin.ts and plex.ts by design',
+    why: 'this file IS the per-backend router — it imports both jellyfin.ts and plex.ts by design; stopActiveEncoding/getLastHlsPlaySessionId arrived with the kind-aware transcode teardown (stopLastTranscode)',
   },
   'src/store-setup-flow.ts': {
     names: ['fetchPublicUsers', 'rememberKnownLibraries', 'normalizeUrl'],
     why: 'setup terminal login + address normalising; library listing already moved to the provider',
   },
   'src/video-player.ts': {
-    names: ['stopActiveEncoding', 'getLastHlsPlaySessionId', 'isStreamCopyUrl'],
-    why: 'transcode teardown, pending the capability-gated cancelActiveTranscode path',
+    names: ['isStreamCopyUrl'],
+    why: 'codec probe for the quality ladder; teardown went through playback-routing',
   },
 };
 

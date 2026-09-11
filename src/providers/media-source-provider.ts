@@ -172,6 +172,10 @@ export interface Title {
 export interface MediaStreamInfo {
   /** Server stream index — pass as AudioStreamIndex/SubtitleStreamIndex. */
   index: number;
+  /** The backend's own stream id, when it has one distinct from the index.
+   *  Plex's universal transcoder is addressed by THIS (`audioStreamID`,
+   *  `subtitleStreamID`), not by the position index Jellyfin's API takes. */
+  id?: string;
   type: 'Audio' | 'Subtitle';
   language?: string;
   displayTitle?: string;

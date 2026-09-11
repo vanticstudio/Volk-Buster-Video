@@ -133,6 +133,7 @@ export function createAdminServer(
           fetchResources(token, identity),
         ]);
         if (!account) return json(res, 502, { error: 'could not read your Plex account' });
+        if (resources === null) return json(res, 502, { error: 'Could not reach plex.tv to check your access — try again in a moment.' });
         // Same gate as the public side. Being on the LAN is not authorisation.
         if (!grantsAccessTo(resources, cfg.plexMachineId)) {
           return json(res, 403, { error: 'That account has no access to this store\'s Plex server.' });
