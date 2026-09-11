@@ -257,7 +257,7 @@ test('the default is NOT what the retired 90s aliases resolve to', () => {
 //
 // isViewerOnly lives in this zero-import leaf because more than one module asks
 // the question — main.ts, to refuse the settings drawer, and poster-textures.ts,
-// to decide whether ~351 MB of CPU texture mirror is worth keeping. A second
+// to decide whether ~300 MiB of CPU texture mirror is worth keeping. A second
 // copy would be the same mistake the default-era literal made in three modules,
 // with a worse failure: the two halves disagreeing about whether a viewer can
 // reach the drawer, so the memory is freed while a rebuild can still be run.

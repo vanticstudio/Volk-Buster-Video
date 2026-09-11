@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { perfTrace, perfSlot } from './perf-trace';
 import { isViewerOnly } from './store-config-keys';
+import { mirrorRangeReadable } from './poster-mirror-read';
 
 const SP_UPLOAD = perfSlot('texUploadMs');  // uploadTextureNow (initTexture + mipmaps)
 const CT_UPLOAD = perfSlot('texUploadN');
@@ -65,9 +66,9 @@ const mipChainScratch = new Map<string, Array<{ data: Uint8Array; w: number; h: 
 /**
  * Drop a texture's CPU backing array once the GPU owns the storage.
  *
- * Guarded by the same null checks the two mirror writes already carry
- * (`if (arrayTexture.image.data)`), so nothing else has to change — those
- * writes simply become no-ops, which is right once nothing will read them.
+ * The two mirror WRITES already carry `if (arrayTexture.image.data)` guards and
+ * simply become no-ops. The one READ that did not — getFallbackPixels — now
+ * goes through mirrorRangeReadable (poster-mirror-read.ts).
  */
 function releaseMirrorIfUnused(arrayTexture: THREE.DataArrayTexture): void {
   if (!isViewerOnly()) return;
@@ -351,26 +352,29 @@ function updateTextureArrayLayerImpl(
       properties.__storageAllocated = true;
       properties.__version = arrayTexture.version;
     }
-    // STORAGE IS ON THE GPU NOW, so the CPU mirror has done its one job.
+    // STORAGE IS ON THE GPU NOW, so the CPU mirror has done its main job.
     //
-    // It costs ~351 MB at a 2174-title catalog (300 MB of high-res bank plus
-    // the atlas) and after this call nothing reads it: layers upload through
-    // the raw texSubImage3D below, straight from pixelData, and three never
-    // sees a version bump again. Its only remaining consumer is a no-reload
-    // scene REBUILD, which re-uploads the whole mirror into a fresh GL context
-    // rather than re-streaming ~3k layers through the budgeted queue (7.2s of
-    // a 9.4s rebuild, measured — see init()'s fast path).
+    // It costs 300 MiB on a 2,048-layer driver (328 MiB on 4,096+) and this frees
+    // the HIGH-RES bank only; the atlas mirror is never released. Layers upload
+    // through the raw texSubImage3D below, straight from pixelData, and three never
+    // sees a version bump again. Two things still read the mirror:
     //
-    // A VIEWER CANNOT TRIGGER A REBUILD. Both call sites are unreachable
-    // behind the front door: main.ts's is inside closeSettingsDrawer and the
-    // drawer refuses to open in viewer mode, and the counter-terminal one
-    // needs rows (MEDIA RELEASE DATE, STREAMING SERVICES) that are not in
-    // VIEWER_TERMINAL_ROWS. Context loss does not need it either — that path
-    // reloads the page rather than restoring in place.
+    //   - A no-reload scene REBUILD, which re-uploads it into a fresh GL context
+    //     instead of re-streaming ~3k layers (7.2s of a 9.4s rebuild, measured). A
+    //     VIEWER CANNOT TRIGGER ONE: main.ts's call is inside closeSettingsDrawer,
+    //     which refuses to open in viewer mode, and the counter-terminal one needs
+    //     rows VIEWER_TERMINAL_ROWS does not carry. init()'s fast path also refuses
+    //     a released mirror now, so a future viewer rebuild re-streams slowly
+    //     rather than uploading null.
     //
-    // So on the public port this is a third of the store's memory buying
-    // nothing. Kept everywhere else, where the owner can still change the look
-    // and expects the instant rebuild it pays for.
+    //   - getFallbackPixels, for hover fallback on a TWO-BANK catalog. This comment
+    //     used to say nothing read the mirror after this call. That read had no
+    //     null check and threw; it now goes through mirrorRangeReadable and treats
+    //     a released mirror as "no pixels", sending the caller to its placeholder.
+    //
+    // Context loss needs neither — that path reloads the page. So on the public
+    // port this is ~300 MiB buying nothing; kept everywhere else, where the owner
+    // can still change the look and expects the instant rebuild it pays for.
     releaseMirrorIfUnused(arrayTexture);
   }
   if (!webglTexture) {
@@ -784,7 +788,9 @@ class TextureArrayManager {
     //
     // A medium/box-art change genuinely invalidates the pixels; that path calls
     // invalidatePosterLayers() and falls through to the full reallocation.
-    const haveArrays = !!(this.lowResArray && this.highResArray && this.loadedFlagsTexture);
+    // A released high-res mirror (viewer mode) cannot take this path: it would set
+    // needsUpdate and have three upload a null buffer into the fresh context.
+    const haveArrays = !!(this.lowResArray && this.highResArray?.image?.data && this.loadedFlagsTexture);
     if (haveArrays && !posterLayersInvalid && totalMovies <= this.maxMovies &&
         this.maxMovies - this.nextIndex >= LAYER_CHURN_HEADROOM / 2) {
       // Re-settle the shortfall against this call's (possibly smaller, on a
@@ -1170,7 +1176,7 @@ class TextureArrayManager {
         const { layer, tileX, tileY } = this.atlasTileFor(lowSlot);
         const layerSize = atlasW * atlasH * 4;
         const layerByteOffset = layer * layerSize;
-        if (layerByteOffset + layerSize <= (data as Uint8Array).length) {
+        if (mirrorRangeReadable(data as Uint8Array | null, layerByteOffset, layerSize)) {
           return {
             data: extractAtlasTile(data as Uint8Array, atlasW, layerByteOffset, tileX, tileY, LOW_RES_TILE_W, LOW_RES_TILE_H),
             w: LOW_RES_TILE_W,
@@ -1183,7 +1189,7 @@ class TextureArrayManager {
       const { width: w, height: h, data } = this.highResArray.image;
       const layerSize = w * h * 4;
       const start = idx * layerSize;
-      if (start + layerSize <= (data as Uint8Array).length) {
+      if (mirrorRangeReadable(data as Uint8Array | null, start, layerSize)) {
         return { data: (data as Uint8Array).slice(start, start + layerSize), w, h };
       }
     }
