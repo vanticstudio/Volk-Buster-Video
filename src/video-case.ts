@@ -5806,7 +5806,7 @@ export function createHeroSeriesBoxsetMaterials(movie: Movie, _highlightedName?:
 // (perf-trace: the first selection move / first flip used to freeze 80-190ms
 // while the driver compiled hero-material shader variants at first draw.)
 // Builds one material of EVERY flavor the hero/inspect path can produce at
-// runtime, so StoreScene can renderer.compileAsync() them behind the loading
+// runtime, so StoreScene can DRAW them through the real composer behind the loading
 // screen. Factory-produced sets are owned by this module's caches (they're the
 // exact entries the first real selection will hit); the DataTexture poster
 // flavors — which only exist after full-res pixels stream in, hence can't come

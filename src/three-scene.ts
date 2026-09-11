@@ -133,7 +133,7 @@ import { RentalRecord, loadRentalRecord, clearRentalRecord, isLockedOut } from '
 import { perfTrace, perfSlot } from './perf-trace';
 import { ShelfClasps, type ClaspTarget } from './fixtures/shelf-clasp';
 import { requestMovie } from './jellyseerr';
-import { displayHz, computeFpsCap, computeScalerTargetFps } from './display-hz';
+import { displayHz, computeFpsCap, RESIZE_GRACE_MS, STORE_TARGET_FPS, scalerThresholds } from './display-hz';
 import { type LibraryIndex } from './recommend-why';
 import type { ClerkSuggestion } from './clerk-interaction';
 import { fovForAspect, pixelRatioCap } from './viewport';
@@ -1888,17 +1888,11 @@ export class StoreScene {
       && !/Chrome|Chromium/i.test(navigator.userAgent)
       && /Linux/.test(navigator.userAgent);
     if (this.webkitGL) console.log('[GPU] WebKitGTK engine — clamping pixel budget to medium and using static mirrors');
-    // Frame-rate cap default follows the supersample grant (owner ruling
-    // 2026-08-05, after wave 1 shipped with a blanket 60-target: "buttery
-    // smooth" is the product on capable hardware): a GPU that measured enough
-    // headroom for above-native supersampling — or any explicit bb_quality
-    // override, the owner's kiosk/harness case — runs UNCAPPED by default and
-    // chases the display's real refresh rate; only auto-tiered machines
-    // without that headroom get the 60-target divisor cap that protects weak
-    // hardware. An explicit bb_fps_cap (the SERVICE MODE row) still forces
-    // either behavior on any machine.
+    // Frame-rate target: STORE_TARGET_FPS (display-hz.ts, owner ruling
+    // 2026-09-11, replacing 2026-08-05's "capable hardware runs uncapped").
+    // An explicit bb_fps_cap (the SERVICE MODE row) still wins on any machine.
     this.fpsCapOverride = localStorage.getItem('bb_fps_cap')
-      ?? (supersampleGranted ? '0' : null);
+      ?? String(STORE_TARGET_FPS);
     if (softwareGL) {
       // Software frames cost seconds, so the dynamic scaler's one-step-per-
       // second walk from 1.0 to the floor would itself take minutes (measured:
@@ -2644,6 +2638,10 @@ export class StoreScene {
     // the page layout breaks.
     perfTrace.count(CT_RES);
     this.renderer.setSize(width, height, false);
+    // A resize is not a GPU verdict (display-hz.ts RESIZE_GRACE_MS): stop the
+    // resolution scaler measuring the rebuild this call just triggered.
+    this.resScaleFrames = 0;
+    this.resScaleWindowStart = performance.now() + RESIZE_GRACE_MS;
     // Every cached buffer the partial composite patches has just been resized
     // (and thereby cleared) — nothing to patch until a full frame refills them.
     this.partial?.disarm();
@@ -2966,8 +2964,8 @@ export class StoreScene {
   // selection move / first flip, freezing the frame for however long the
   // driver takes to link. Build them at boot through the REAL factories (which
   // also pre-pays their canvas draws and seeds the video-case caches the first
-  // real selection will hit) and compile via compileAsync
-  // (KHR_parallel_shader_compile — background compile, no main-thread stall).
+  // real selection will hit) and DRAW them once through the real composer —
+  // not compileAsync, which built variants the runtime never uses (store-stock.ts).
   // The BokehPass gets one throwaway composited frame for the same reason: its
   // depth + bokeh programs otherwise compile on the first inspect.
   public warmedPrograms = false;
@@ -4299,25 +4297,14 @@ export class StoreScene {
       this.resScaleWindowStart = time;
       return;
     }
+    if (time < this.resScaleWindowStart) return; // resize grace — see applyRenderResolution
     this.resScaleFrames++;
     const elapsed = time - this.resScaleWindowStart;
     if (elapsed < 1000) return;
 
     const fps = (this.resScaleFrames * 1000) / elapsed;
-    // Thresholds scale with the display: the classic 50/58 pair was 60Hz
-    // tuning (0.83×/0.97× of target); a 120Hz display gets 100/116. Measured
-    // on the RX 9070 XT: motion-frame cost is mostly pixel-independent (AO
-    // recompute + draw-call submission), so a tighter band just parks scale
-    // at the floor for no fps — 0.83× is the right down-threshold here too.
-    //
-    // Bounded by SCALER_TARGET_FPS_CAP: that same pixel-independence means a
-    // GPU short of the panel's refresh cannot buy the difference with
-    // resolution, so scaling the thresholds all the way up with an uncapped
-    // 144/165Hz display parks resScale at the floor permanently. See
-    // computeScalerTargetFps.
-    const scalerTarget = computeScalerTargetFps(this.targetFps);
-    const downAt = scalerTarget * 0.83;
-    const upAt = scalerTarget * 0.97;
+    // Thresholds and the reasoning behind them live in display-hz.ts.
+    const { downAt, upAt } = scalerThresholds(this.targetFps);
     if (fps < downAt && this.resScale > this.resScaleMin) {
       this.resScale = Math.max(this.resScaleMin, round2(this.resScale - StoreScene.RES_SCALE_STEP));
       this.resScaleGoodStreak = 0;
@@ -4339,7 +4326,7 @@ export class StoreScene {
     }
 
     this.resScaleFrames = 0;
-    this.resScaleWindowStart = time;
+    this.resScaleWindowStart = Math.max(this.resScaleWindowStart, time); // keep a resize grace
   }
 
   // Render-on-demand wake signal (issue #24): force the composer to run for the

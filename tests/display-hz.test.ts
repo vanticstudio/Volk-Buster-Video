@@ -14,6 +14,9 @@ import {
   computeFpsCap,
   computeScalerTargetFps,
   SCALER_TARGET_FPS_CAP,
+  RESIZE_GRACE_MS,
+  STORE_TARGET_FPS,
+  scalerThresholds,
 } from '../src/display-hz.ts';
 
 test('computeFpsCap targets 60 by default, on an even divisor of the panel', () => {
@@ -63,4 +66,55 @@ test('the scaler target survives a garbage fps target', () => {
   assert.equal(computeScalerTargetFps(0), SCALER_TARGET_FPS_CAP);
   assert.equal(computeScalerTargetFps(-1), SCALER_TARGET_FPS_CAP);
   assert.equal(computeScalerTargetFps(NaN), SCALER_TARGET_FPS_CAP);
+});
+
+// ─── The store's 30 FPS target and the resize feedback loop ─────────────────
+//
+// Measured on an M4 Pro: standing still held 59 fps; changing sections fell to
+// 14, with main-thread blocks of ~250 ms. A CPU profile named
+// WebGLRenderer.setSize the hottest function in the app, and 818 of its 887 ms
+// came through the resolution scaler — which stepped down, rebuilt every render
+// target, measured that rebuild as a slow GPU, and stepped down again, all the
+// way from 1.0 to the 0.5 floor. These pin the halves of the fix that are pure.
+
+test('the store targets 30 fps by default', () => {
+  assert.equal(STORE_TARGET_FPS, 30);
+});
+
+test('the store target presents at 30 on common panels', () => {
+  assert.equal(computeFpsCap(60, String(STORE_TARGET_FPS)), 30);
+  assert.equal(computeFpsCap(120, String(STORE_TARGET_FPS)), 30);
+});
+
+test('the scaler defends the store target, not 60', () => {
+  assert.equal(computeScalerTargetFps(STORE_TARGET_FPS), 30);
+});
+
+test('a section-change dip that tripped the scaler at 60 no longer does at 30', () => {
+  // The regression, as numbers. A dip to 35 is under 60's down-threshold
+  // (49.8) — every section change produced one — and over 30's (24.9), so the
+  // scaler no longer starts the staircase at all.
+  const dip = 35;
+  assert.ok(dip < scalerThresholds(60).downAt, 'sanity: 35 fps did trip the old 60 target');
+  assert.ok(dip > scalerThresholds(STORE_TARGET_FPS).downAt, 'and must not trip the store target');
+});
+
+test('moving the thresholds did not retune them', () => {
+  // They left three-scene.ts for testability, not for new values. 60Hz tuning
+  // has always been 50/58.
+  const { downAt, upAt } = scalerThresholds(60);
+  assert.ok(Math.abs(downAt - 49.8) < 1e-9, `downAt ${downAt}`);
+  assert.ok(Math.abs(upAt - 58.2) < 1e-9, `upAt ${upAt}`);
+});
+
+test('the thresholds stay bounded on a high-refresh panel', () => {
+  // Same SCALER_TARGET_FPS_CAP bound the inline code had.
+  assert.deepEqual(scalerThresholds(144), scalerThresholds(SCALER_TARGET_FPS_CAP));
+});
+
+test('the resize grace outlasts the rebuild it guards', () => {
+  // A 15-target rebuild plus first draw into all of them measured ~100-250 ms.
+  // Shorter than that and the rebuild leaks into the next window again.
+  assert.ok(RESIZE_GRACE_MS >= 500, `${RESIZE_GRACE_MS} ms cannot cover a rebuild`);
+  assert.ok(RESIZE_GRACE_MS > 1000 / STORE_TARGET_FPS, 'must exceed a frame at the target');
 });
