@@ -124,3 +124,55 @@ test('assets stream through untouched and keep their compression', async () => {
   assert.equal(body, 'export const x = 1;');
   assert.doesNotMatch(body, /localStorage/, 'assets must not be rewritten');
 });
+
+// ─── Asset caching ──────────────────────────────────────────────────────────
+//
+// `vite preview` answers no-cache for everything, including the 4.1 MB of JS,
+// WASM and fonts whose filenames ARE their content hashes. Every visit
+// re-validated every asset. The front door is what actually serves the public,
+// so the header belongs there.
+
+import { cacheImmutableAssets } from '../server/app-proxy.ts';
+
+test('a content-addressed asset is cached for a year', () => {
+  const h: Record<string, unknown> = { 'cache-control': 'no-cache' };
+  cacheImmutableAssets('/assets/main-DgKul1SD.js', h);
+  assert.match(String(h['cache-control']), /immutable/);
+  assert.match(String(h['cache-control']), /max-age=31536000/);
+});
+
+test('the validator is dropped alongside immutable', () => {
+  // An ETag next to `immutable` invites exactly the revalidation the header
+  // exists to prevent, and vite's is a weak mtime tag that changes on every
+  // rebuild of identical bytes.
+  const h: Record<string, unknown> = { etag: 'W/"123-456"', 'last-modified': 'x' };
+  cacheImmutableAssets('/assets/three-scene-CzowJvCN.js', h);
+  assert.equal(h.etag, undefined);
+  assert.equal(h['last-modified'], undefined);
+});
+
+test('the document is never cached', () => {
+  // index.html names the hashed assets. Cache it and you pin a viewer to a
+  // build that no longer exists — and it carries their Plex connection.
+  for (const url of ['/', '/index.html', '/remote.html']) {
+    const h: Record<string, unknown> = { 'cache-control': 'no-cache' };
+    cacheImmutableAssets(url, h);
+    assert.equal(h['cache-control'], 'no-cache', `${url} must keep upstream's header`);
+  }
+});
+
+test('an unhashed asset keeps upstream\'s header', () => {
+  // Only the hash makes a year safe. A stable name can change content under
+  // the same URL, and a year-long cache of that is unfixable from the server.
+  for (const url of ['/assets/logo.svg', '/models/shelf.glb', '/textures/floor.ktx2']) {
+    const h: Record<string, unknown> = { 'cache-control': 'no-cache' };
+    cacheImmutableAssets(url, h);
+    assert.equal(h['cache-control'], 'no-cache', `${url} must not be pinned for a year`);
+  }
+});
+
+test('a query string does not defeat the match', () => {
+  const h: Record<string, unknown> = {};
+  cacheImmutableAssets('/assets/main-DgKul1SD.js?v=2', h);
+  assert.match(String(h['cache-control']), /immutable/);
+});

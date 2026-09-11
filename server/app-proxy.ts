@@ -55,6 +55,39 @@ function sanitise(headers: NodeJS.Dict<string | string[]>): NodeJS.Dict<string |
  * HDR skies, and buffering those into the front door's memory would put a
  * per-request ceiling on how many viewers it can serve at once.
  */
+/**
+ * Let content-addressed assets be cached forever.
+ *
+ * `vite preview` answers `Cache-Control: no-cache` for everything, including
+ * /assets/main-DgKul1SD.js — 4.1 MB of JS, WASM and fonts whose filenames ARE
+ * their content hashes. So every visit re-validates every asset: a round trip
+ * each on a warm cache, the whole 4.1 MB on a cold one. Vite is not wrong, it
+ * is a preview server; the front door is the thing actually serving the public,
+ * so the header belongs here.
+ *
+ * SAFE BECAUSE THE HASH IS THE CACHE KEY. Rebuild the app and the filename
+ * changes, so a year-long immutable cache can never serve stale code — the old
+ * URL is simply never requested again. That is the entire point of the hashing,
+ * and it has been going to waste.
+ *
+ * Scoped to /assets/ and to names carrying a hash. Anything else — index.html
+ * above all, which names those assets — keeps whatever upstream said, because
+ * caching the document is how you pin a viewer to a build that no longer
+ * exists.
+ */
+const HASHED_ASSET = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/;
+
+export function cacheImmutableAssets(url: string, headers: Record<string, unknown>): void {
+  const path = url.split('?')[0];
+  if (!HASHED_ASSET.test(path)) return;
+  headers['cache-control'] = 'public, max-age=31536000, immutable';
+  // A validator alongside `immutable` invites the revalidation the header
+  // exists to prevent, and vite's is a weak mtime-based tag that changes on
+  // every rebuild of identical bytes.
+  delete headers.etag;
+  delete headers['last-modified'];
+}
+
 export function proxyToApp(
   req: IncomingMessage,
   res: ServerResponse,
@@ -111,7 +144,9 @@ export function proxyToApp(
       // rewrite them would put a per-request memory ceiling on how many viewers
       // this can serve at once. Only the HTML is small enough to hold.
       if (!bootstrap || !isHtml || encoded) {
-        res.writeHead(upRes.statusCode || 502, sanitise(upRes.headers));
+        const passthrough = sanitise(upRes.headers);
+        cacheImmutableAssets(req.url || '', passthrough);
+        res.writeHead(upRes.statusCode || 502, passthrough);
         upRes.pipe(res);
         return;
       }
