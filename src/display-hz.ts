@@ -99,6 +99,37 @@ export function computeScalerTargetFps(targetFps: number): number {
 export const STORE_TARGET_FPS = 30;
 
 /**
+ * Supersampling in the store: OFF by default, and measured rather than guessed.
+ *
+ * Two factors used to default to 2.0 — one paid on every MOVING frame, one on
+ * the frame the view parks on. A/B on an M4 Pro, the same 20 section changes:
+ *
+ *                            supersample on    supersample off
+ *   drawing buffer, moving   10.88 MP          5.44 MP (native Retina)
+ *   composites per second    17.1              27.1
+ *   frame gap p50 / p90      57.8 / 74.9 ms    33.3 / 41.9 ms
+ *   main-thread blocks       7, 792 ms         2, 174 ms
+ *   resize stalls            5, 643 ms         2, 155 ms
+ *
+ * Off lands the median on STORE_TARGET_FPS, and wins twice. Half the pixels go
+ * through the bloom chain — a run of full-screen passes and render-target
+ * switches that a tile-based GPU pays for heavily, whatever the "motion cost is
+ * pixel-independent" note says (it was measured on a desktop RX 9070 XT). And
+ * the move/settle resize cycle mostly stops: with both factors off, the motion
+ * and settle scales collapse to native, so neither transition changes the
+ * drawing buffer, and every change used to rebuild 15 render targets.
+ *
+ * What it costs: the parked frame is no longer supersampled beyond native. On
+ * a Retina panel native is already sharp, and a smooth store is the owner's
+ * stated priority. An explicit bb_motion_ss / bb_settle_ss still overrides.
+ *
+ * Turning these off was first dismissed as irrelevant: the CPU half of the
+ * problem had been found, and the GPU half had not yet been measured.
+ */
+export const STORE_MOTION_SS = 0;
+export const STORE_SETTLE_SS = 0;
+
+/**
  * Down/up thresholds, as fractions of the scaler's target.
  *
  * The classic 50/58 pair was 60Hz tuning (0.83x / 0.97x); a 120Hz display got

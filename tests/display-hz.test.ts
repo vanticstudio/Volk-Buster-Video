@@ -17,6 +17,8 @@ import {
   RESIZE_GRACE_MS,
   STORE_TARGET_FPS,
   scalerThresholds,
+  STORE_MOTION_SS,
+  STORE_SETTLE_SS,
 } from '../src/display-hz.ts';
 
 test('computeFpsCap targets 60 by default, on an even divisor of the panel', () => {
@@ -117,4 +119,31 @@ test('the resize grace outlasts the rebuild it guards', () => {
   // Shorter than that and the rebuild leaks into the next window again.
   assert.ok(RESIZE_GRACE_MS >= 500, `${RESIZE_GRACE_MS} ms cannot cover a rebuild`);
   assert.ok(RESIZE_GRACE_MS > 1000 / STORE_TARGET_FPS, 'must exceed a frame at the target');
+});
+
+// ─── Supersampling off in the store ─────────────────────────────────────────
+//
+// A/B on an M4 Pro over the same 20 section changes: supersampling on rendered
+// 10.88 MP while moving and managed 17 composites a second; off, 5.44 MP and 27,
+// with the frame-gap median at 33.3 ms — the 30 FPS target. It also stopped most
+// of the move/settle resize cycle, because both scales collapse to native.
+
+test('the store does not supersample moving frames by default', () => {
+  // three-scene reads this through `factor < 1 ? 0 : factor`, the same path an
+  // explicit bb_motion_ss of '0' takes, so off here is exactly the measured off.
+  assert.equal(STORE_MOTION_SS, 0);
+});
+
+test('the store does not supersample the parked frame by default', () => {
+  // Settle supersampling also owned a resize: parking snapped the buffer up to
+  // the settle scale, and the next movement snapped it back down.
+  assert.equal(STORE_SETTLE_SS, 0);
+});
+
+test('an off default resolves through the same gate as an explicit off', () => {
+  // The guard three-scene applies to either source. Anything under 1 is off,
+  // so 0 from the default and '0' from storage cannot diverge.
+  const gate = (factor: number) => (!Number.isFinite(factor) || factor < 1 ? 0 : factor);
+  assert.equal(gate(STORE_MOTION_SS), gate(Number('0')));
+  assert.equal(gate(STORE_SETTLE_SS), gate(Number('0')));
 });

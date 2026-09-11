@@ -133,7 +133,7 @@ import { RentalRecord, loadRentalRecord, clearRentalRecord, isLockedOut } from '
 import { perfTrace, perfSlot } from './perf-trace';
 import { ShelfClasps, type ClaspTarget } from './fixtures/shelf-clasp';
 import { requestMovie } from './jellyseerr';
-import { displayHz, computeFpsCap, RESIZE_GRACE_MS, STORE_TARGET_FPS, scalerThresholds } from './display-hz';
+import { displayHz, computeFpsCap, RESIZE_GRACE_MS, STORE_TARGET_FPS, scalerThresholds, STORE_MOTION_SS, STORE_SETTLE_SS } from './display-hz';
 import { type LibraryIndex } from './recommend-why';
 import type { ClerkSuggestion } from './clerk-interaction';
 import { fovForAspect, pixelRatioCap } from './viewport';
@@ -344,20 +344,20 @@ export class StoreScene {
   private static readonly RES_SCALE_MAX = 1.0;
   private static readonly RES_SCALE_STEP = 0.05;
   // Settle supersample: how many times the MOVING frame's pixel count the one
-  // parked frame is drawn at. 2 = 1.41x linear, the classic 2xSS — measurably
-  // cleaner on shelf rails / ceiling grid in a 4K A/B, and self-scaling (a
-  // 1080p window gets 2x its pixels too, not a fixed 4K number).
-  private static readonly SETTLE_SS_DEFAULT = 2.0;
+  // parked frame is drawn at. OFF in the store (STORE_SETTLE_SS, display-hz.ts,
+  // measured A/B). 2 was the classic 2xSS, cleaner on shelf rails in a 4K A/B,
+  // and stays one explicit bb_settle_ss away for a machine with the headroom.
+  private static readonly SETTLE_SS_DEFAULT = STORE_SETTLE_SS;
   // Hard ceiling on the settle buffer. 17e6 keeps the largest dimension around
   // 5.5k (well inside every maxTextureSize) and the composer/bloom/AO target
   // set inside a sane VRAM envelope on the 4K kiosk.
   private static readonly SETTLE_PX_CAP = 17e6;
   // Motion supersample: multiple of the native/base budget a MOVING frame is
-  // drawn at. Default set from measurement, not taste — see the perf note on
-  // the commit that added it. Kept below SETTLE_SS_DEFAULT so the parked frame
-  // is still the sharpest thing on screen, and capped well under SETTLE_PX_CAP
-  // since this one is paid every frame.
-  private static readonly MOTION_SS_DEFAULT = 2.0;
+  // drawn at. OFF in the store (STORE_MOTION_SS, display-hz.ts). Upstream chose
+  // 2.0 from a measurement that found it free up to ~7.4e6 px; on an M4 Pro the
+  // store drew 10.88 MP while moving and lost 10 composites a second to it, so
+  // the measured default here is off. bb_motion_ss raises it where there is room.
+  private static readonly MOTION_SS_DEFAULT = STORE_MOTION_SS;
   // Hard ceiling on the MOVING buffer, deliberately below SETTLE_PX_CAP. 2.0x
   // was measured free up to ~7.4e6 px (see the commit's perf table); 12e6 is
   // as far as that measurement can honestly be extended, and it still buys the
