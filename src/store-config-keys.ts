@@ -28,6 +28,30 @@
  */
 export const DEFAULT_THEME_ID = 'bb-2010';
 
+/**
+ * Is this store being served through the front door, to a viewer?
+ *
+ * The front door writes bb_viewer_only into the page on every document load
+ * (server/plex-connection.ts) because the store cannot otherwise tell whether
+ * anything is in front of it.
+ *
+ * HERE, in the zero-import leaf, because more than one module needs it and the
+ * answer must not be duplicated. That is not hypothetical caution — the default
+ * era was written out as a literal in three separate modules in this codebase
+ * and all three drifted, which cost a real bug. A second copy of this
+ * predicate would be the same mistake with a worse failure: the two halves
+ * would disagree about whether a viewer can reach the settings drawer.
+ */
+export function isViewerOnly(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('bb_viewer_only') === '1';
+  } catch {
+    // Private mode, or a context with no storage. A store that cannot tell is
+    // not a viewer's store — fail towards the fuller experience.
+    return false;
+  }
+}
+
 /** Every key in the app's settings family is a candidate; the skip-set below
  *  carves out the ones that describe a machine rather than a store. */
 const SYNC_PREFIX = /^bb_/;

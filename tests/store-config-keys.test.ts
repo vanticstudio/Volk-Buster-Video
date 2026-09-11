@@ -13,7 +13,7 @@
 // services, brand — do make the trip.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_THEME_ID } from '../src/store-config-keys.ts';
+import { DEFAULT_THEME_ID, isViewerOnly } from '../src/store-config-keys.ts';
 
 // Node has no localStorage; shim before import (same idiom as
 // media-sources.test.ts / playback-routing.test.ts).
@@ -251,4 +251,53 @@ test('the default is NOT what the retired 90s aliases resolve to', () => {
   // Folding the two together would silently re-skin every existing store that
   // still resolves through an alias, which is the change nobody asked for.
   assert.notEqual(DEFAULT_THEME_ID, 'bb-1990');
+});
+
+// ─── Viewer mode, as a shared predicate ─────────────────────────────────────
+//
+// isViewerOnly lives in this zero-import leaf because more than one module asks
+// the question — main.ts, to refuse the settings drawer, and poster-textures.ts,
+// to decide whether ~351 MB of CPU texture mirror is worth keeping. A second
+// copy would be the same mistake the default-era literal made in three modules,
+// with a worse failure: the two halves disagreeing about whether a viewer can
+// reach the drawer, so the memory is freed while a rebuild can still be run.
+
+test('the viewer flag is read from the key the front door writes', () => {
+  const saved = globalThis.localStorage;
+  try {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => (k === 'bb_viewer_only' ? '1' : null),
+    };
+    assert.equal(isViewerOnly(), true);
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = saved;
+  }
+});
+
+test('anything other than exactly "1" is not viewer mode', () => {
+  const saved = globalThis.localStorage;
+  try {
+    for (const v of ['0', 'true', '', 'yes', null]) {
+      (globalThis as { localStorage?: unknown }).localStorage = { getItem: () => v };
+      assert.equal(isViewerOnly(), false, `"${v}" must not enable viewer mode`);
+    }
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = saved;
+  }
+});
+
+test('storage that throws fails towards the FULLER experience', () => {
+  // Private mode, or a context with no storage. Guessing "viewer" would free
+  // the texture mirror on a store whose owner can still trigger a rebuild —
+  // and that rebuild would then re-stream every layer, which is the 7.2s stall
+  // the mirror exists to avoid.
+  const saved = globalThis.localStorage;
+  try {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => { throw new Error('SecurityError'); },
+    };
+    assert.equal(isViewerOnly(), false);
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = saved;
+  }
 });

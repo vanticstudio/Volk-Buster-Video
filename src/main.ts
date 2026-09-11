@@ -155,6 +155,7 @@ import { buildDemoDiscovery, makeSyntheticEpisodes, demoPoster } from './demo-li
 import { EMPTY_STAFF_PICKS, loadStaffPicks, StaffPicks } from './staff-picks-loader';
 import { titleMatchKeys } from './staff-picks';
 import { initDemoPlayback, openDemoPlaybackOverlay, revealDemoPlaybackOverlay, closeDemoPlaybackOverlay } from './demo-playback';
+import { isViewerOnly } from './store-config-keys';
 import {
   episodeLabel,
   markWatchedAndFindNext,
@@ -723,13 +724,7 @@ function browseHintText(): string {
     : 'OK TO EXAMINE  \u2022  BACK OUT  \u2022  SETTINGS & HELP AT THE COUNTER';
 }
 
-function isViewerMode(): boolean {
-  try {
-    return localStorage.getItem('bb_viewer_only') === '1';
-  } catch {
-    return false;
-  }
-}
+const isViewerMode = isViewerOnly;
 // Rows a remote viewer must never be offered. SWITCH TO 2D MODE destroys the 3D
 // scene, and the stream IS that scene's canvas — so the one system menu a
 // viewer can reach (the glass power menu is DOM, invisible to them) used to

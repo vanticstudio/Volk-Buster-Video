@@ -17,6 +17,7 @@
 
 import * as THREE from 'three';
 import { perfTrace, perfSlot } from './perf-trace';
+import { isViewerOnly } from './store-config-keys';
 
 const SP_UPLOAD = perfSlot('texUploadMs');  // uploadTextureNow (initTexture + mipmaps)
 const CT_UPLOAD = perfSlot('texUploadN');
@@ -60,6 +61,19 @@ let isUploading = false;
 // sequentially on the main thread), keyed by level-0 dimensions, so a
 // streaming wave allocates nothing per poster.
 const mipChainScratch = new Map<string, Array<{ data: Uint8Array; w: number; h: number }>>();
+
+/**
+ * Drop a texture's CPU backing array once the GPU owns the storage.
+ *
+ * Guarded by the same null checks the two mirror writes already carry
+ * (`if (arrayTexture.image.data)`), so nothing else has to change — those
+ * writes simply become no-ops, which is right once nothing will read them.
+ */
+function releaseMirrorIfUnused(arrayTexture: THREE.DataArrayTexture): void {
+  if (!isViewerOnly()) return;
+  if (!arrayTexture.image?.data) return;
+  arrayTexture.image.data = null as unknown as Uint8Array;
+}
 
 function getMipChainScratch(w: number, h: number): Array<{ data: Uint8Array; w: number; h: number }> {
   const key = `${w}x${h}`;
@@ -337,6 +351,27 @@ function updateTextureArrayLayerImpl(
       properties.__storageAllocated = true;
       properties.__version = arrayTexture.version;
     }
+    // STORAGE IS ON THE GPU NOW, so the CPU mirror has done its one job.
+    //
+    // It costs ~351 MB at a 2174-title catalog (300 MB of high-res bank plus
+    // the atlas) and after this call nothing reads it: layers upload through
+    // the raw texSubImage3D below, straight from pixelData, and three never
+    // sees a version bump again. Its only remaining consumer is a no-reload
+    // scene REBUILD, which re-uploads the whole mirror into a fresh GL context
+    // rather than re-streaming ~3k layers through the budgeted queue (7.2s of
+    // a 9.4s rebuild, measured — see init()'s fast path).
+    //
+    // A VIEWER CANNOT TRIGGER A REBUILD. Both call sites are unreachable
+    // behind the front door: main.ts's is inside closeSettingsDrawer and the
+    // drawer refuses to open in viewer mode, and the counter-terminal one
+    // needs rows (MEDIA RELEASE DATE, STREAMING SERVICES) that are not in
+    // VIEWER_TERMINAL_ROWS. Context loss does not need it either — that path
+    // reloads the page rather than restoring in place.
+    //
+    // So on the public port this is a third of the store's memory buying
+    // nothing. Kept everywhere else, where the owner can still change the look
+    // and expects the instant rebuild it pays for.
+    releaseMirrorIfUnused(arrayTexture);
   }
   if (!webglTexture) {
     console.warn("Failed to retrieve __webglTexture from renderer properties.");
