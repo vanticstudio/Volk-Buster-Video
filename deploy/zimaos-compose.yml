@@ -2,6 +2,11 @@
 #
 # Paste this whole file into the YAML tab and hit Install. Nothing to fill in.
 #
+# YOUR DATA LIVES IN /DATA/AppData/volkbuster, where the Files app can see it.
+# The README's YAML and its docker run command keep data in the
+# volkbuster-data volume instead. The two do not share data, so switching from
+# one to the other opens an empty store.
+#
 # NOTHING TO BUILD, NOTHING TO CLONE. The image is published to GHCR by
 # .github/workflows/publish-image.yml on every push to main, multi-arch
 # (amd64 + arm64). Paste this, hit Install, done.
@@ -24,12 +29,12 @@
 # so do NOT add a mapping for 1420 — that would serve your whole library to
 # anyone who found the port.
 
-name: volkbuster
+name: volkbusters
 
 services:
-  volkbuster:
+  volkbusters:
     image: ghcr.io/vanticstudio/volk-buster-video:latest
-    container_name: volkbuster
+    container_name: volkbusters
     restart: unless-stopped
     init: true
 
@@ -46,7 +51,7 @@ services:
       # chosen in the browser, from a list of the servers you own.
       #
       # After installing, read the setup code from the log:
-      #   docker logs volkbuster | grep -i "setup code"
+      #   docker logs volkbusters | grep -i "setup code"
       # then open the app and follow it.
       #
       # Set PLEX_MACHINE_ID / SESSION_SECRET / TOKEN_ENCRYPTION_KEY here only if
@@ -80,20 +85,24 @@ services:
       start_period: 40s
       retries: 3
 
-    # ZimaOS app-store metadata. Harmless to other Docker hosts, which ignore
-    # unknown x- keys.
-    x-casaos:
-      author: self
-      category: Media
-      main: volkbuster
-      port_map: "3355"
-      # Served straight from the repo so the tile matches the app. Point this at
-      # your own fork once it is pushed — GitHub raw URLs are what ZimaOS reads.
-      icon: https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/main/deploy/icon/volkbuster-icon-256.png
-      scheme: http
-      index: /
-      description:
-        en_us: >-
-          Your Plex library as a walkable 1990s video rental store. Access is
-          gated on Plex library sharing: anyone you have shared a library with
-          can sign in, and nobody else can.
+# ZimaOS app metadata. It has to sit at the top level: ZimaOS reads the app's
+# title and icon from here and nowhere else, and asks for a project name when
+# the title is missing. Other Docker hosts ignore x- keys.
+x-casaos:
+  author: self
+  category: Media
+  main: volkbusters
+  port_map: "3355"
+  scheme: http
+  index: /
+  title:
+    custom: Volkbusters
+    en_us: Volkbusters
+  # Served straight from the repo so the tile matches the app. Point this at
+  # your own fork once it is pushed — GitHub raw URLs are what ZimaOS reads.
+  icon: https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/refs/heads/main/deploy/icon/volkbuster-icon-512.png
+  description:
+    en_us: >-
+      Your Plex library as a walkable 1990s video rental store. Access is
+      gated on Plex library sharing: anyone you have shared a library with
+      can sign in, and nobody else can.

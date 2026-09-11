@@ -22,13 +22,54 @@ It is not a menu with a skin on it. It's a store.
 
 
 ```bash
-docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -p 3366:3366 -v volkbuster-data:/data ghcr.io/vanticstudio/volk-buster-video:latest
+docker run -d --name volkbusters --restart unless-stopped -p 3355:3355 -p 3366:3366 -v volkbuster-data:/data ghcr.io/vanticstudio/volk-buster-video:latest
 ```
+
+**On ZimaOS**, paste this into **Install Custom App** → **YAML** tab instead. It
+is the same install as the command above — same image, ports and data volume —
+with the app's name and icon filled in, so ZimaOS installs it without asking for
+a project name:
+
+```yaml
+name: volkbusters
+
+services:
+  volkbusters:
+    image: ghcr.io/vanticstudio/volk-buster-video:latest
+    container_name: volkbusters
+    restart: unless-stopped
+    init: true
+    ports:
+      - "3355:3355"
+      - "3366:3366"   # the owner's console: LAN only, never forward it
+    volumes:
+      - volkbuster-data:/data
+
+volumes:
+  volkbuster-data:
+    name: volkbuster-data   # the exact name, so an existing install keeps its data
+
+x-casaos:
+  title:
+    custom: Volkbusters
+    en_us: Volkbusters
+  icon: https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/refs/heads/main/deploy/icon/volkbuster-icon-512.png
+  main: volkbusters
+  port_map: "3355"
+  scheme: http
+  index: /
+  category: Media
+  author: self
+```
+
+ZimaOS reads the name and icon only from YAML, never from a `docker run` line. If
+you use the **Docker CLI** tab anyway, set **App title** to `Volkbusters` and the
+icon URL to `https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/refs/heads/main/deploy/icon/volkbuster-icon-512.png` on the **Form** tab before installing.
 
 Then get your setup code:
 
 ```bash
-docker logs volkbuster | grep -i "setup code"
+docker logs volkbusters | grep -i "setup code"
 ```
 
 Open `http://<your-host>:3355`, enter the code, sign in with Plex, pick your
@@ -47,7 +88,7 @@ data — a Docker named volume lives under `/var/lib/docker/volumes/` and will n
 show up in a file browser:
 
 ```bash
-docker run -d --name volkbuster --restart unless-stopped -p 3355:3355 -p 3366:3366 -v /DATA/AppData/volkbuster:/data ghcr.io/vanticstudio/volk-buster-video:latest
+docker run -d --name volkbusters --restart unless-stopped -p 3355:3355 -p 3366:3366 -v /DATA/AppData/volkbuster:/data ghcr.io/vanticstudio/volk-buster-video:latest
 ```
 
 That folder holds `store.db` (sessions and per-viewer settings) and
@@ -71,8 +112,11 @@ curl -O https://raw.githubusercontent.com/vanticstudio/Volk-Buster-Video/main/do
 docker compose up -d
 ```
 
-**ZimaOS / CasaOS:** Install Custom App → YAML tab → paste
-[`deploy/zimaos-compose.yml`](deploy/zimaos-compose.yml) → Install.
+**ZimaOS, with your data in a folder you can browse:** paste
+[`deploy/zimaos-compose.yml`](deploy/zimaos-compose.yml) into the YAML tab
+instead of the block above. It keeps everything under
+`/DATA/AppData/volkbuster` and adds a `brand` folder for your own logo. It does
+not share data with the volume install, so pick one and stay with it.
 
 **From source**, if you want to change it:
 

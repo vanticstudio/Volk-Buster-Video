@@ -1,8 +1,12 @@
 # VolkBuster Video — a Plex-gated 1990s video store.
 #
-#   cp server/.env.example .env     # fill in the three required values
 #   docker compose up -d
 #   open http://<nas-ip>:3355
+#
+# Upgrading from before the container was renamed volkbusters? Run
+#   docker compose up -d --remove-orphans
+# once, so the old volkbuster container gives up ports 3355 and 3366. The data
+# volume is untouched either way.
 #
 # ONE INTERNET-FACING PORT. Two are published below — 3355 for the front door,
 # 3366 for the owner's console on the LAN — but only 3355 should ever be routed
@@ -13,11 +17,11 @@
 # Do not add a mapping for APP_PORT.
 
 services:
-  volkbuster:
+  volkbusters:
     image: ghcr.io/vanticstudio/volk-buster-video:latest
     # Or build from a clone instead of pulling:
     #   build: .
-    container_name: volkbuster
+    container_name: volkbusters
     restart: unless-stopped
     init: true
 
@@ -43,7 +47,7 @@ services:
       # NOTHING IS REQUIRED HERE. The session-signing and token-encryption keys
       # are generated on first boot and stored beside the database; the Plex
       # server is chosen in the browser during setup. After `up -d`, read the
-      # setup code with:  docker logs volkbuster | grep -i "setup code"
+      # setup code with:  docker logs volkbusters | grep -i "setup code"
       #
       # Set PLEX_MACHINE_ID / SESSION_SECRET / TOKEN_ENCRYPTION_KEY only if you
       # manage secrets externally; env wins over the generated values.

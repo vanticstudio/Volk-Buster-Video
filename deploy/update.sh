@@ -20,7 +20,7 @@ set -eu
 
 SRC="${SRC:-/DATA/volkbuster-src}"
 IMAGE="${IMAGE:-volkbuster-video:latest}"
-NAME="${NAME:-volkbuster}"
+NAME="${NAME:-volkbusters}"
 PORT="${PORT:-3355}"
 # The owner-only console. LAN only — never forward this one in from outside.
 # Set ADMIN_PORT=0 to leave it unpublished and switched off.
@@ -54,6 +54,25 @@ if [ "$ADMIN_PORT" != "0" ]; then
 fi
 
 echo "==> Replacing the $NAME container"
+# One-time rename. Installs from before the container was called volkbusters
+# still have one called volkbuster holding ports 3355 and 3366, and starting the
+# new name beside it fails to bind. Its data lives in the volume, never in the
+# container, so removing it loses nothing.
+OLD=""
+[ "$NAME" = "volkbusters" ] && OLD=volkbuster
+# A container that ZimaOS or Compose manages is theirs to replace, not ours: they
+# recreate it on the next boot, and the two copies then fight over the ports.
+for c in $OLD "$NAME"; do
+  case "$(docker container inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$c" 2>/dev/null || true)" in
+    ""|"<no value>") ;;
+    *)
+      echo "!! $c is managed by ZimaOS or Compose, so this script leaves it alone." >&2
+      echo "!! Update it from there instead." >&2
+      exit 1
+      ;;
+  esac
+done
+[ -n "$OLD" ] && docker rm -f "$OLD" >/dev/null 2>&1 || true
 docker rm -f "$NAME" >/dev/null 2>&1 || true
 # ADMIN_PUBLISH is deliberately unquoted: it word-splits into two arguments, or
 # expands to nothing at all when the console is off.

@@ -94,7 +94,7 @@ export function setupPage(): string {
     <p>Nobody can use this store until you tell it which Plex server it belongs
        to. First, prove you run this machine — the setup code was printed to the
        container log when it started:</p>
-    <div class="cmd">docker logs volkbuster | grep -i "setup code"</div>
+    <div class="cmd">docker logs volkbusters | grep -i "setup code"</div>
     <label for="tok">Setup code</label>
     <input id="tok" type="text" autocomplete="off" spellcheck="false" placeholder="12 hex characters">
     <button class="btn" id="claim" type="button">Continue</button>
