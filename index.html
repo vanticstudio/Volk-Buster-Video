@@ -112,8 +112,18 @@
           <div class="boot-logo-container">
             <svg class="bb-logo-svg" viewBox="0 0 640 400"><use href="#bb-ticket-logo"/></svg>
           </div>
-          <!-- Boot Terminal/Console -->
-          <div class="boot-console">
+          <!-- Boot loader: a friendly status line + progress for the public
+               store, and the full operations log for the owner (main.ts swaps
+               which one shows based on isViewerOnly). -->
+          <div class="boot-console" id="boot-loader">
+            <div class="boot-status-row">
+              <span class="boot-status" id="boot-status">Opening the store…</span>
+              <span class="pulse-indicator"></span>
+            </div>
+            <div class="boot-progress" id="boot-progress"><div class="boot-progress-fill" id="boot-progress-fill"></div></div>
+            <div class="boot-flavor" id="boot-flavor">Warming up the fluorescents…</div>
+          </div>
+          <div class="boot-console boot-console-log" id="boot-console-panel" hidden>
             <div class="boot-console-header">
               <span>HTPC Operations Log</span>
               <span class="pulse-indicator"></span>
@@ -408,6 +418,17 @@
                 </div>
                 <div class="ss-disc-face ss-disc-data"></div>
               </div>
+            </div>
+          </div>
+          <!-- Closed-for-the-night variant (bb_closed_mode): a period-correct
+               "we're closed" card shown instead of the bouncing logo. Pure
+               DOM/CSS on this already-existing overlay — the saver's cost
+               profile is unchanged, and the store behind stays paused. -->
+          <div class="saver-closed-card" id="saver-closed-card" hidden>
+            <div class="closed-sign">
+              <div class="closed-title">SORRY — WE'RE CLOSED</div>
+              <div class="closed-sub">COME BACK DURING STORE HOURS</div>
+              <div class="closed-brand">VOLKBUSTER VIDEO</div>
             </div>
           </div>
         </div>

@@ -52,6 +52,22 @@ export function isViewerOnly(): boolean {
   }
 }
 
+// TRUST MODEL, WRITTEN DOWN (see the decision this documents):
+//
+// bb_viewer_only is a flag the FRONT DOOR writes into every served page, but
+// it lives in the viewer's own localStorage — a viewer who opens devtools can
+// flip it and see the owner's settings drawer. That is ACCEPTED, and the
+// reason is the threat model this fork already states: the real boundary is
+// Plex's sharing (unshare a person and the front door stops serving them),
+// and the drawer's knobs are store-look preferences, not credentials — keys,
+// hostnames and admin writes live server-side precisely so a client flag can
+// never reach them. Hiding the drawer from a viewer is courtesy, not access
+// control: the same person can also read the served JS and call the store's
+// own APIs directly. If that ever stops being the posture (untrusted members
+// of the public reaching :3355), the flag must move from localStorage to a
+// server-side session claim the front door asserts per document load — a
+// claim the viewer cannot edit, enforced where the settings drawer opens.
+
 /** Every key in the app's settings family is a candidate; the skip-set below
  *  carves out the ones that describe a machine rather than a store. */
 const SYNC_PREFIX = /^bb_/;

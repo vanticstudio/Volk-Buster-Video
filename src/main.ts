@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { measureDisplayHz } from './display-hz';
+import { measureDisplayHz, remeasureDisplayHz } from './display-hz';
 import { textEntryHasFocus } from './text-entry-focus';
 import { installDebugLog, debugLogPath } from './debug-log';
 
@@ -800,6 +800,14 @@ const MAX_LOG_ENTRIES = 200;
 // on-screen log is hidden behind the video overlay.
 const recentLogLines: string[] = [];
 
+// ─── Boot loader (public store) ────────────────────────────────────────────
+// The boot overlay shows a friendly status line + progress bar to viewers on
+// the public port; the owner console keeps the raw operations log instead.
+// The helpers live in boot-loader.ts (extracted for the line budget); main.ts
+// only feeds them and calls them.
+
+import { initBootLoader, friendlyBootStatus, setBootStatus, setBootProgress } from './boot-loader';
+
 function logToConsole(message: string, type: 'system' | 'cec' | 'video' = 'system') {
   const container = document.getElementById('console-logs-container');
   const bootContainer = document.getElementById('boot-console-logs-container');
@@ -810,6 +818,12 @@ function logToConsole(message: string, type: 'system' | 'cec' | 'video' = 'syste
 
   console.log(`[UI Log] ${formattedText}`);
   recentLogLines.push(formattedText);
+
+  // Public boot loader: translate the raw line into a friendly status while
+  // the overlay is up. No-op outside boot (the overlay is hidden) and on the
+  // owner console (which shows the raw log instead).
+  const friendly = friendlyBootStatus(message);
+  if (friendly) setBootStatus(friendly);
   if (recentLogLines.length > MAX_LOG_ENTRIES) recentLogLines.shift();
 
   if (container) {
@@ -2519,6 +2533,7 @@ function applyLiveSettings(scene: StoreScene) {
 async function rebuildStoreScene() {
   if (librariesList.length === 0 && gameMovies.length === 0) return; // nothing loaded yet
   logToConsole('[System] Applying store changes (rebuilding scene, no reload)...', 'system');
+  initBootLoader();
   showBootOverlay();
   // Nothing is interactive behind the overlay — drain texture uploads at burst
   // rate instead of letting the just-pressed drawer key hold them to the polite
@@ -2628,6 +2643,14 @@ async function initializeStoreScene(preservePosterCache = false) {
     logToConsole(`[System] Planning the store floor for ${plannedTitles} title(s)...`, 'system');
     const scene = new StoreScene(canvasContainer, storeLibraries, logToConsole, jfUrl, jfToken, storeComingSoon, storeDiscovery, storeGameMovies, staffPicks);
     armQualityBackstop();
+    // The renderer exists now, so the GPU verdict is in. A software-rendered
+    // (or integrated-picked) machine is the answer to "why is the store slow
+    // on a good PC" — say so on the loader while it is still up, in plain
+    // words, instead of leaving the verdict in a console log nobody opens.
+    const { gpuVerdict } = await import('./three-scene');
+    if (gpuVerdict && gpuVerdict.software && isViewerMode()) {
+      setBootStatus('This device is drawing the store without a graphics card — it will run slowly.');
+    }
     // A fresh attempt is underway — any earlier give-up no longer applies (it
     // could only be reached again via a brand-new page load, which is a fresh
     // JS environment anyway, or a rebuild the user triggered by hand).
@@ -2649,6 +2672,7 @@ async function initializeStoreScene(preservePosterCache = false) {
         lastLoggedPct = pct;
         logToConsole(`[System] Loading store textures... ${pct}% (${loaded}/${total})`, 'system');
       }
+      setBootProgress(pct);
     };
 
     // Wire up selection change callback
@@ -2824,7 +2848,27 @@ async function initializeStoreScene(preservePosterCache = false) {
 
     logToConsole('[System] Loading store textures...', 'system');
 
-    scene.texturesReadyPromise.then(() => {
+    // Reveal when the shelves are READY ENOUGH, not when the slowest title in
+    // the catalog finishes: one hung poster URL used to hold the whole store
+    // behind the overlay. 90% settled (or 20s, whichever first) opens the
+    // doors; the remaining art streams in via loadShelfDetails exactly as it
+    // does when browsing past an unloaded section today.
+    const REVEAL_AT_PCT = 90;
+    const REVEAL_TIMEOUT_MS = 20_000;
+    const revealReady = new Promise<void>((resolve) => {
+      let settledCount = 0;
+      let total = 0;
+      const origProgress = scene.onTextureLoadProgress;
+      scene.onTextureLoadProgress = (loaded, t) => {
+        settledCount = loaded; total = t;
+        origProgress?.(loaded, t);
+        if (total > 0 && (settledCount / total) * 100 >= REVEAL_AT_PCT) resolve();
+      };
+      setTimeout(resolve, REVEAL_TIMEOUT_MS);
+      scene.texturesReadyPromise.then(() => resolve());
+    });
+
+    revealReady.then(() => {
       if (contextLossGaveUp) {
         // A boot-time context loss already exhausted its retries and put the
         // give-up message on screen (see installContextLossRecovery) — decode
@@ -2877,6 +2921,10 @@ async function initializeStoreScene(preservePosterCache = false) {
       aisleIndicatorInterval = window.setInterval(updateBrowseHUDVisibility, 200);
 
       logToConsole('[System] All textures loaded. Store ready.', 'system');
+      // The boot-time displayHz sample raced the decode storm; now that the
+      // main thread is free, take one clean pass (upgrade-only — see
+      // remeasureDisplayHz) so a 120Hz kiosk isn't pinned at 60Hz thresholds.
+      remeasureDisplayHz();
       initSharedPlace(scene, isSetupPending(), () => storeScene, () => ui.isLoginOpen || textEntryHasFocus(), showClerkToast);
       // Opening day (#41): dock the counter CRT's NEW STORE SETUP before the
       // overlay drops, so the player wakes already at the terminal.
@@ -4167,6 +4215,16 @@ async function main() {
         ui.isScreensaverActive = false;
         document.getElementById('screensaver-overlay')!.classList.remove('visible');
         stopScreensaverAnimation();
+        // Restore whatever the store was wearing before the closed-dressing
+        // (see onIdle) — only when we actually dressed it down.
+        if (savedOutsideMode !== null && storeScene) {
+          try {
+            storeScene.setOutsideMode(savedOutsideMode);
+            if (savedMarqueeMode) storeScene.setMarqueeAnimMode(savedMarqueeMode);
+          } catch { /* best-effort restore */ }
+          savedOutsideMode = null;
+          savedMarqueeMode = null;
+        }
         retailAudio.resumeFromIdle();
         storeScene?.resumeRendering();
         storeScene?.resumeAmbientTvs();
@@ -4192,6 +4250,20 @@ async function main() {
       if (!ui.isPlaybackActive && !ui.isScreensaverActive && !ui.isLoginOpen && !ui.isSetupOpen && !ui.isExitConfirmOpen) {
         ui.isScreensaverActive = true;
         document.getElementById('screensaver-overlay')!.classList.add('visible');
+        // Closed-for-the-night (bb_closed_mode): dress the parked frame down
+        // for the night BEFORE the loop parks — the outside rig flips to
+        // night and the marquee chases, one final composite shows it, then
+        // the existing pause keeps that frame on screen at zero cost. Saved
+        // values restore on wake below.
+        const closed = localStorage.getItem('bb_closed_mode') === '1';
+        if (closed && storeScene) {
+          try {
+            savedOutsideMode = storeScene.getOutsideMode();
+            savedMarqueeMode = storeScene.marqueeAnimMode;
+            storeScene.setOutsideMode('night');
+            storeScene.setMarqueeAnimMode('chase');
+          } catch { /* dressing is best-effort — the saver works without it */ }
+        }
         retailAudio.suspendForIdle();
         storeScene?.suspendChimeForIdle();
         storeScene?.pauseAmbientTvs();
@@ -4275,6 +4347,10 @@ async function main() {
   // to near-zero while occluded. Wake is instant and silent. We deliberately
   // leave an in-app movie playing if the window merely lost focus.
   let isOccluded = false;
+  // Closed-for-the-night (bb_closed_mode): what the store wore before the
+  // screensaver dressed it down for the night; restored on wake.
+  let savedOutsideMode: 'day' | 'night' | 'sunset' | null = null;
+  let savedMarqueeMode: 'off' | 'steady' | 'chase' | null = null;
   function onOcclude() {
     if (isOccluded) return;
     isOccluded = true;
@@ -4481,9 +4557,11 @@ function bootUnlessUnsupported(): void {
 
 if (document.readyState === 'loading') {
   window.addEventListener('DOMContentLoaded', () => {
+    initBootLoader();
     bootUnlessUnsupported();
   });
 } else {
+  initBootLoader();
   bootUnlessUnsupported();
 }
 

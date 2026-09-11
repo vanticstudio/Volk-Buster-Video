@@ -40,6 +40,7 @@ import { brandDropReport, misplacedBrandArt } from './brand-drop';
 import type { LogoShape, LogoSpec } from './logo-spec';
 import { drawLogo, getLogoFontString } from './logo-renderer';
 import { activatePanelRow, SettingsRowKit } from './settings-rows';
+import { perfDiagnostic } from './perf-diagnostic';
 import { buildEmblemEditorRow } from './emblem-editor';
 import { brandFontChoices } from './brand-fonts';
 import { buildControlsHelpPanel } from './controls-help';
@@ -708,6 +709,34 @@ export function registerCoreSettings(): void {
   });
 
   registerSetting({
+    key: 'bb_door_chime',
+    label: 'Door Chime',
+    kind: 'cycle',
+    group: 'Store Look',
+    values: [
+      { id: 'recorded', label: 'Classic (Recording)' },
+      { id: 'electronic', label: 'Electronic Ding-Dong' },
+      { id: 'brass', label: 'Brass Bell' },
+      { id: 'glass', label: 'Glass Chime' },
+    ],
+    default: 'recorded',
+    applyMode: 'live',
+    hint: 'The shop bell at the entrance. The three alternatives are synthesized — no file to install.',
+    subpage: 'Building & Storefront',
+  });
+
+  registerSetting({
+    key: 'bb_closed_mode',
+    label: 'Closed Sign Screensaver',
+    kind: 'toggle',
+    group: 'Store Look',
+    default: false,
+    applyMode: 'live',
+    hint: 'Idle screen shows SORRY — WE\'RE CLOSED instead of the bouncing tape, and the parked store dresses down for the night.',
+    subpage: 'Building & Storefront',
+  });
+
+  registerSetting({
     key: 'bb_marquee_anim',
     label: 'Marquee Animation',
     kind: 'cycle',
@@ -812,6 +841,24 @@ export function registerCoreSettings(): void {
     hint: '5-minute lockout for testing. Applies to the NEXT checkout.',
     hidden: true, // service knob: dev timer for exercising the rental loop
     visibleWhen: () => getSetting<boolean>('bb_rental_mode'),
+  });
+
+  // Performance diagnostic ----------------------------------------------------
+  // kind 'toggle' is deliberate: selecting the row prints its LIVE hint in
+  // the footer bar, and toggling just forces the re-render that refreshes it.
+  // The hint composes the always-on hitch tracer + getPerfInfo + the GPU
+  // verdict into the one-line verdict a kiosk owner can read without
+  // devtools — see perf-diagnostic.ts. The toggle itself changes nothing.
+  registerSetting({
+    key: 'bb_perf_check',
+    label: 'Performance Diagnostic',
+    kind: 'toggle',
+    group: 'Performance',
+    default: false,
+    applyMode: 'live',
+    get hint() { return perfDiagnostic(); },
+    onChange: () => 'Reopen this row after browsing for a few seconds for fresh numbers.',
+    hidden: true, // service knob: the diagnostic IS the row's hint
   });
 
   // Playback -------------------------------------------------------------------

@@ -104,6 +104,22 @@ export function startScreensaverAnimation() {
   const overlay = document.getElementById('screensaver-overlay');
   if (!logo || !rotor || !overlay) return;
 
+  // Closed-for-the-night variant (bb_closed_mode): swap the bouncing logo for
+  // the "we're closed" card. Same overlay, same zero-WebGL cost profile — the
+  // card is DOM only, and the rAF loop below is simply not started when the
+  // card variant is showing (nothing to move).
+  let closedCard: HTMLElement | null = null;
+  try {
+    if (localStorage.getItem('bb_closed_mode') === '1') {
+      closedCard = document.getElementById('saver-closed-card');
+      if (closedCard) {
+        closedCard.hidden = false;
+        logo.style.display = 'none';
+        return;
+      }
+    }
+  } catch { /* no storage — the default bouncing logo runs */ }
+
   vx = (Math.random() > 0.5 ? 1 : -1) * (2.0 + Math.random() * 1.5);
   vy = (Math.random() > 0.5 ? 1 : -1) * (2.0 + Math.random() * 1.5);
   applyMode(Math.random() < DISC_CHANCE_AT_START ? 'disc' : 'vhs');
@@ -183,6 +199,14 @@ export function stopScreensaverAnimation() {
     rafId = null;
   }
   window.removeEventListener('resize', measure);
+  // Restore the closed-card variant's takeover: the logo is visible again for
+  // the next (non-closed) activation.
+  const card = document.getElementById('saver-closed-card');
+  if (card && !card.hidden) {
+    card.hidden = true;
+    const logo = document.getElementById('screensaver-logo');
+    if (logo) logo.style.display = '';
+  }
 }
 
 // Verification/debug hook (same spirit as window.__clerkAudit): lets a

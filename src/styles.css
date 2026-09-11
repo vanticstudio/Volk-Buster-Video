@@ -2008,6 +2008,45 @@ html, body {
   border-radius: 2px;
 }
 
+/* Friendly boot loader (public store) — replaces the operations log. */
+.boot-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(0, 76, 255, 0.2);
+  padding-bottom: 10px;
+}
+.boot-status {
+  font-family: var(--font-title);
+  font-size: 1.05rem;
+  color: #e2e8f0;
+  letter-spacing: 0.5px;
+}
+.boot-progress {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.boot-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--bb-yellow, #ffd23f) 0%, #ffb300 100%);
+  box-shadow: 0 0 10px rgba(255, 210, 63, 0.5);
+  transition: width 0.35s ease;
+}
+.boot-flavor {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: #94a3b8;
+  text-align: center;
+  min-height: 1.2em;
+  transition: opacity 0.4s ease;
+}
+.boot-flavor.swap { opacity: 0; }
+
 /* Animations */
 @keyframes indicator-pulse {
   0% {
@@ -3034,6 +3073,53 @@ html, body {
 #video-player-overlay:not(.visible) *,
 #browse-locator:not(.visible) * {
   pointer-events: none !important;
+}
+
+/* ── CLOSED-FOR-THE-NIGHT screensaver card ──────────────────────────────────
+   Shown instead of the bouncing DVD logo when bb_closed_mode is on. Same
+   opaque overlay, same zero-WebGL cost: this is DOM only. The 1993-POS look
+   (gold bars, reverse video) matches the power menu's CRT pages. */
+.saver-closed-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.closed-sign {
+  background: #0a0d14;
+  border: 3px solid var(--bb-yellow, #ffd23f);
+  border-radius: 6px;
+  padding: 42px 58px;
+  text-align: center;
+  box-shadow: 0 0 60px rgba(255, 210, 63, 0.14), 0 30px 80px rgba(0, 0, 0, 0.9);
+  animation: closed-flicker 4s infinite;
+}
+.closed-title {
+  font-family: var(--font-title, sans-serif);
+  font-size: clamp(28px, 5vw, 44px);
+  letter-spacing: 0.06em;
+  color: var(--bb-yellow, #ffd23f);
+}
+.closed-sub {
+  margin-top: 14px;
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  color: rgba(242, 232, 201, 0.55);
+}
+.closed-brand {
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(242, 232, 201, 0.2);
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  color: rgba(242, 232, 201, 0.45);
+}
+@keyframes closed-flicker {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  93% { opacity: 0.82; }
+  94% { opacity: 1; }
 }
 
 

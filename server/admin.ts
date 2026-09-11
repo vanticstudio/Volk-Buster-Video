@@ -29,6 +29,7 @@ import { loadPolicy, savePolicy, type StorePolicy } from './admin-config.ts';
 import { CONSOLE_SETTINGS, validateSettings } from './store-settings.ts';
 import { adminPage, adminDeniedPage } from './admin-page.ts';
 import { signInPage } from './signin-page.ts';
+import { checkForUpdates, startUpdate, updateStatus, updateAvailable } from './update-manager.ts';
 
 const COOKIE = 'hv_admin';
 
@@ -193,6 +194,26 @@ export function createAdminServer(
         const revoked = db.deleteAllSessions();
         console.log(`[admin] signed out ${revoked} session(s) at the owner's request`);
         return json(res, 200, { revoked });
+      }
+
+      // ── Update manager ────────────────────────────────────────────────────
+      if (path === '/api/updates/check' && req.method === 'GET') {
+        const info = await checkForUpdates();
+        return json(res, 200, { ...info, canApply: updateAvailable() });
+      }
+      if (path === '/api/updates/apply' && req.method === 'POST') {
+        if (!updateAvailable()) {
+          return json(res, 409, { error: 'No update script in this install — update the way it was installed (Docker pull, ZimaOS, or a git clone).' });
+        }
+        const job = startUpdate();
+        console.log(`[admin] update started by the owner (job ${job.id})`);
+        return json(res, 202, { id: job.id });
+      }
+      if (path === '/api/updates/status' && req.method === 'GET') {
+        const id = new URL(req.url || '/', 'http://localhost').searchParams.get('id') || '';
+        const job = updateStatus(id);
+        if (!job) return json(res, 404, { error: 'unknown update job' });
+        return json(res, 200, { done: job.done, ok: job.ok, log: job.log.slice(-8000) });
       }
 
       return json(res, 404, { error: 'not found' });

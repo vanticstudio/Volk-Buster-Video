@@ -950,9 +950,38 @@ const jellyfinSpineCache = new Map<string, THREE.MeshStandardMaterial>();
 // re-initializes and re-uploads both transparently (a one-off upload, no
 // visual break). Every getter refreshes recency, so anything on-screen
 // recently — including the current hero's four faces — sits at the hot end
-// and is never the eviction victim.
+// and is never the eviction victim. Eviction's DISPOSAL is additionally
+// deferred to a 30s graveyard (see caseMaterialGraveyard below), so the
+// re-upload lands at idle instead of inside the transition frame that
+// triggered the eviction.
 const CASE_MATERIAL_LRU_CAP = 64; // ~211MB worst case at 4 faces/title
 const caseMaterialLRU = new Map<string, THREE.MeshStandardMaterial>();
+
+// Evicted entries are not disposed immediately: they sit in this graveyard
+// for a settle window first. Evictions cluster at selection changes and
+// inspect entries — exactly when the evicted material may still be bound to
+// the hero mesh, a carried copy or a slot's instanced mesh — and disposing
+// THEN forces the re-initialize + re-upload (mipgen included) to happen
+// inside the next composited transition frame, unbudgeted. Waiting one
+// window moves that re-upload to idle time; a material re-requested inside
+// the window (its key re-entered the LRU) is spared entirely.
+const CASE_MATERIAL_GRAVEYARD_MS = 30_000;
+const caseMaterialGraveyard: Array<{ key: string; mat: THREE.MeshStandardMaterial; due: number }> = [];
+
+function caseMaterialLRUSweep(now: number): void {
+  for (let i = caseMaterialGraveyard.length - 1; i >= 0; i--) {
+    const g = caseMaterialGraveyard[i];
+    if (now < g.due) continue;
+    // Re-requested since eviction: the entry is live in the LRU again.
+    if (caseMaterialLRU.get(g.key) === g.mat) {
+      caseMaterialGraveyard.splice(i, 1);
+      continue;
+    }
+    g.mat.map?.dispose();
+    g.mat.dispose();
+    caseMaterialGraveyard.splice(i, 1);
+  }
+}
 
 function caseMaterialLRUGet(key: string): THREE.MeshStandardMaterial | undefined {
   const mat = caseMaterialLRU.get(key);
@@ -964,13 +993,21 @@ function caseMaterialLRUGet(key: string): THREE.MeshStandardMaterial | undefined
 }
 
 function caseMaterialLRUSet(key: string, mat: THREE.MeshStandardMaterial) {
+  caseMaterialLRUSetSweepAndEvict(key, mat, performance.now());
+}
+
+function caseMaterialLRUSetSweepAndEvict(key: string, mat: THREE.MeshStandardMaterial, now: number) {
   caseMaterialLRU.set(key, mat);
+  caseMaterialLRUSweep(now);
   while (caseMaterialLRU.size > CASE_MATERIAL_LRU_CAP) {
     const oldest = caseMaterialLRU.keys().next().value as string;
     const evicted = caseMaterialLRU.get(oldest)!;
     caseMaterialLRU.delete(oldest);
-    evicted.map?.dispose();
-    evicted.dispose();
+    // Deferred disposal — see caseMaterialGraveyard above. The entry leaves
+    // the cache now (a future request rebuilds it fresh), but its GL objects
+    // survive the window so a mesh still wearing them never re-uploads
+    // inside a transition frame.
+    caseMaterialGraveyard.push({ key: oldest, mat: evicted, due: now + CASE_MATERIAL_GRAVEYARD_MS });
   }
 }
 
@@ -1345,6 +1382,11 @@ export function clearVideoCaseCache(mode: 'full' | 'rebuild' = 'full') {
     mat.dispose();
   });
   caseMaterialLRU.clear();
+  // The graveyard holds evicted-but-not-yet-disposed entries; a teardown
+  // must drain it too or those GL objects survive into the next scene (and
+  // a later sweep would dispose materials the fresh scene may hold).
+  caseMaterialGraveyard.forEach(g => { g.mat.map?.dispose(); g.mat.dispose(); });
+  caseMaterialGraveyard.length = 0;
 
   // Hero-face materials share the singleton canvas textures, which are redrawn
   // in place and survive cache clears — dispose the materials here and the
@@ -1406,6 +1448,8 @@ function disposeMediumScopedCaches() {
     mat.dispose();
   });
   caseMaterialLRU.clear();
+  caseMaterialGraveyard.forEach(g => { g.mat.map?.dispose(); g.mat.dispose(); });
+  caseMaterialGraveyard.length = 0;
 
   const ownedPosterTextures = new Set<THREE.Texture>();
   heroPosterTextureLRU.forEach(tex => ownedPosterTextures.add(tex));

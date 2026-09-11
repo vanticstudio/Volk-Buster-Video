@@ -178,6 +178,16 @@ export const RESIZE_GRACE_MS = 1000;
  */
 export function measureDisplayHz(): void {
   if (typeof requestAnimationFrame === 'undefined') return;
+  sampleDisplayHz(undefined);
+}
+
+/**
+ * One sampling pass, shared by the boot measurement and the post-boot
+ * re-measure. `done` (when given) fires once with the snapped rate — or not
+ * at all when the pass was inconclusive.
+ */
+function sampleDisplayHz(done?: (hz: number) => void): void {
+  if (typeof requestAnimationFrame === 'undefined') return;
   const deltas: number[] = [];
   let prev = 0;
   let n = 0;
@@ -199,6 +209,23 @@ export function measureDisplayHz(): void {
     }
     measured = best;
     console.log(`[displayHz] rAF fast-decile ${fast.toFixed(2)}ms → ${measured}Hz`);
+    done?.(measured);
   };
   requestAnimationFrame(tick);
+}
+
+/**
+ * Re-measure once the store is actually running: the boot pass races the
+ * texture-decode storm, and a heavily loaded kiosk can land on the 60Hz
+ * default for a 120Hz panel and never correct — which pins every threshold
+ * derived from displayHz() (the ACTIVE cap, the scaler's) at 60Hz values.
+ * Called once from main.ts when texturesReadyPromise resolves. Only accepts
+ * an UPGRADE: a re-measure that reads lower than boot's verdict is kiosk
+ * load, not a slower panel, and must not undo the boot measurement.
+ */
+export function remeasureDisplayHz(): void {
+  if (typeof requestAnimationFrame === 'undefined') return;
+  sampleDisplayHz((hz) => {
+    if (hz > measured) measured = hz;
+  });
 }

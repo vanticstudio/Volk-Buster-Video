@@ -186,7 +186,22 @@ ${sections}
   <div class="bar">
     <button class="btn ghost" id="revoke" type="button">Sign everyone out</button>
     <span id="revoked" class="ok" hidden></span>
-  </div>`;
+  </div>
+
+  <h2>Updates</h2>
+  <p>The store checks GitHub for a newer release. Applying one pulls the source,
+     rebuilds, and restarts — your sessions, chosen Plex server and settings all
+     survive, because they live in the data volume, not the container.</p>
+  <div class="card" id="upd-card">
+    <div class="row"><span class="grow"><b>Current version</b><small id="upd-current">…</small></span></div>
+    <div class="row"><span class="grow"><b>Latest release</b><small id="upd-latest">Checking…</small></span></div>
+    <div class="row" id="upd-notes-row" hidden><span class="grow"><b>What it covers</b><small id="upd-notes"></small></span></div>
+  </div>
+  <div class="bar">
+    <button class="btn" id="upd-apply" type="button" disabled>Update now</button>
+    <span id="upd-status" class="ok" hidden></span>
+  </div>
+  <pre id="upd-log" hidden style="max-height:220px;overflow:auto;background:#0a0d14;border:1px solid rgba(242,232,201,.2);border-radius:4px;padding:10px;font-size:12px;white-space:pre-wrap"></pre>`;
 
   const script = `
 (function(){
@@ -231,6 +246,51 @@ ${sections}
         setTimeout(function(){ s.hidden=true; },5000);
       })
       .catch(function(){ btn.disabled=false; fail('Could not reach the server.'); });
+  });
+
+  // ── Updates ─────────────────────────────────────────────────────────────
+  var updApply=document.getElementById('upd-apply');
+  var updStatus=document.getElementById('upd-status');
+  var updLog=document.getElementById('upd-log');
+  function say(m){ updStatus.textContent=m; updStatus.hidden=false; }
+  fetch('/api/updates/check')
+    .then(function(r){ return r.json(); })
+    .then(function(b){
+      document.getElementById('upd-current').textContent=b.current||'?';
+      var latestEl=document.getElementById('upd-latest');
+      if(b.error){ latestEl.textContent='Could not check — '+b.error; return; }
+      if(!b.latest){ latestEl.textContent='No releases found.'; return; }
+      var when=b.publishedAt?(' · posted '+new Date(b.publishedAt).toLocaleDateString()):'';
+      latestEl.textContent=b.latest+when+(b.behind?' — a newer release is ready':' — you are current');
+      if(b.notes){ var nr=document.getElementById('upd-notes-row'); nr.hidden=false;
+        document.getElementById('upd-notes').textContent=b.notes; }
+      if(b.behind && b.canApply){ updApply.disabled=false; }
+      else if(b.behind && !b.canApply){ say('Update available, but this install has no update script — update the way it was installed.'); }
+    })
+    .catch(function(){ document.getElementById('upd-latest').textContent='Could not check for updates.'; });
+
+  updApply.addEventListener('click',function(){
+    updApply.disabled=true; err.hidden=true; say('Starting update…');
+    fetch('/api/updates/apply',{method:'POST'})
+      .then(function(r){ return r.json().then(function(b){ return {ok:r.ok, body:b}; }); })
+      .then(function(res){
+        if(!res.ok){ updApply.disabled=false; return fail(res.body&&res.body.error?res.body.error:'Could not start the update.'); }
+        var id=res.body.id; say('Updating — the store restarts when it finishes.');
+        updLog.hidden=false;
+        var poll=function(){
+          fetch('/api/updates/status?id='+encodeURIComponent(id))
+            .then(function(r){ return r.json(); })
+            .then(function(s){
+              if(s.log) updLog.textContent=s.log;
+              updLog.scrollTop=updLog.scrollHeight;
+              if(!s.done){ setTimeout(poll,1500); return; }
+              say(s.ok?'Update finished — the store is restarting. Reload this page in a moment.':'Update failed — see the log below.');
+            })
+            .catch(function(){ setTimeout(poll,3000); });
+        };
+        poll();
+      })
+      .catch(function(){ updApply.disabled=false; fail('Could not start the update.'); });
   });
 })();`;
 

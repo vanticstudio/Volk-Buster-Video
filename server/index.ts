@@ -39,6 +39,7 @@ import { setupPage } from './setup-page.ts';
 import { connectionForViewer, connectionBootstrapScript, type StoreConnection } from './plex-connection.ts';
 import { loadPolicy, policyKeys } from './admin-config.ts';
 import { startAdminServer } from './admin.ts';
+import { APP_VERSION } from './version.ts';
 import { saveInstance, isConfigured, type InstanceSecrets } from './bootstrap.ts';
 
 const COOKIE = 'hv_session';
@@ -331,7 +332,7 @@ export function createFrontDoor(
     // this, so it is read from config and only generated once.
     clientId: process.env.PLEX_CLIENT_ID || inst.plexClientId,
     product: process.env.PLEX_PRODUCT || 'VolkBuster Video',
-    version: '0.15.0',
+    version: APP_VERSION,
     device: 'VolkBuster Front Door',
     platform: 'Node',
   };
@@ -682,7 +683,7 @@ export function main(): void {
   startAdminServer(cfg, db, instance, {
     clientId: process.env.PLEX_CLIENT_ID || instance.plexClientId,
     product: process.env.PLEX_PRODUCT || 'VolkBuster Video',
-    version: '0.15.0',
+    version: APP_VERSION,
     device: 'VolkBuster Front Door',
     platform: 'Node',
   });

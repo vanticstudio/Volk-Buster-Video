@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Movie, JellyfinLibrary, Episode } from './providers/media-source-provider';
-import { assetUrl } from './asset-url';
 import {
   clearVideoCaseCache,
   InstancedMovieGroup,
@@ -13,6 +12,18 @@ import {
   posterPixelCache,
   textureArrayManager,
 } from './video-case';
+
+// What the WebGL adapter turned out to be, recorded once at initThree() and
+// read by the UI (boot loader, perf diagnostic) so "the store is slow" can be
+// answered with "this machine is software-rendering" at a glance instead of
+// a console log nobody opens. null until a renderer exists.
+export interface GpuVerdict {
+  name: string;
+  software: boolean;
+  integrated: boolean;
+  tier: 'high' | 'medium' | 'low';
+}
+export let gpuVerdict: GpuVerdict | null = null;
 import { setSurfaceKtx2Renderer } from './surface-textures';
 import { pendingTextureUploads } from './poster-textures';
 import { keyboardOwnedByControl } from './text-entry-focus';
@@ -106,6 +117,7 @@ import * as walk from './store-walk';
 import * as vr from './store-vr';
 import * as overview from './store-overview';
 import * as cam from './store-camera';
+import * as doorChime from './door-chime';
 import * as grade from './store-grade';
 import * as wallDecor from './wall-decor';
 import { gradeNum } from './store-grade';
@@ -586,12 +598,17 @@ export class StoreScene {
   private jellyfinUrl = '';
   private jellyfinToken = '';
   public ambientTvs: AmbientTvs | null = null;
-  private chimeCtx: AudioContext | null = null; // lazy WebAudio for the door chime
+  public chimeCtx: AudioContext | null = null; // lazy WebAudio for the door chime
   // Recorded shop-bell sample (public/sounds/door_bell.mp3) — the only door
   // sound. Fetched+decoded once (preloaded at boot); until it's ready the
   // doors are silent and the next chime retries the load.
-  private doorBellBuffer: AudioBuffer | null = null;
-  private doorBellLoad: Promise<void> | null = null;
+  public doorBellBuffer: AudioBuffer | null = null;
+  public doorBellLoad: Promise<void> | null = null;
+  // The chime has several triggers (boot entry, playback-end re-entry, the
+  // checkout exit walk, and the vestibule-door proximity hook) that all land
+  // on the SAME door pass — one walk through rang once per door plus the
+  // explicit call. Collapse any cluster into a single ring (door-chime.ts).
+  public lastDoorChimeAt = 0;
 
   // T13: marquee bulbs (optional). One InstancedMesh covers every bulb in the
   // store (cornice rim + window poster frames) for a single draw call. Anchors
@@ -1492,7 +1509,7 @@ export class StoreScene {
     // it (decode runs fine on a still-suspended AudioContext).
     try {
       if (!this.chimeCtx) this.chimeCtx = new AudioContext();
-      this.loadDoorBell(this.chimeCtx);
+      doorChime.loadDoorBell(this, this.chimeCtx);
     } catch { /* no WebAudio here — playDoorChime degrades the same way */ }
 
     // T22: rehydrate the carried stack (bb_carried) so an accidental reload
@@ -1879,6 +1896,9 @@ export class StoreScene {
     const effectiveQuality = explicitQuality || calibrated?.tier || (softwareGL ? 'low' : integratedGL ? 'medium' : 'high');
     this.effectiveQuality = effectiveQuality as 'high' | 'medium' | 'low';
     this.softwareGL = softwareGL;
+    // For the UI surfaces (boot loader status line, perf diagnostic): the
+    // adapter verdict as a plain object, set once here.
+    gpuVerdict = { name: gpuName, software: softwareGL, integrated: integratedGL, tier: this.effectiveQuality };
     // Supersample grant: an AUTO-tiered 'high' only earns the above-native
     // supersample when calibration measured real headroom for it. Explicit
     // bb_quality=high (owner/harness override) keeps today's behavior
@@ -2496,6 +2516,9 @@ export class StoreScene {
     (window as any).debugScene = this.scene;
     (window as any).debugRenderer = this.renderer;
     (window as any).debugComposer = this.composer;
+    // The adapter verdict, for the perf diagnostic and for anyone debugging
+    // "why is this store slow" from the console on a kiosk.
+    (window as any).__gpuVerdict = gpuVerdict;
     // Floor arrangement config, drivable from the console:
     //   setArrangement('straight' | 'diagonal' | 'herringbone')
     (window as any).setArrangement = (id: ArrangementId) => this.setArrangement(id);
@@ -3986,59 +4009,8 @@ export class StoreScene {
     return document.getElementById('whiteout-overlay');
   }
 
-  // Kick off (once) the fetch+decode of the recorded door-bell sample. Decode
-  // works on a suspended context, so by the time the doors are passed again
-  // the real recording is ready.
-  private loadDoorBell(ctx: AudioContext): Promise<void> {
-    if (!this.doorBellLoad) {
-      this.doorBellLoad = fetch(assetUrl('sounds/door_bell.mp3'))
-        .then((r) => { if (!r.ok) throw new Error(`door_bell.mp3 HTTP ${r.status}`); return r.arrayBuffer(); })
-        .then((ab) => ctx.decodeAudioData(ab))
-        .then((buf) => { this.doorBellBuffer = buf; })
-        .catch(() => { /* sample unavailable — doors stay silent; next pass retries */ });
-    }
-    return this.doorBellLoad;
-  }
-
-  // Idle-governor hook (same contract as retailAudio.suspendForIdle): park the
-  // door-chime AudioContext so its audio thread stops burning CPU across days
-  // of screensaver/occlusion. No matching resume hook is needed —
-  // playDoorChime() already calls ctx.resume() before every ring, so the next
-  // door pass wakes it transparently.
-  public suspendChimeForIdle() {
-    try {
-      if (this.chimeCtx && this.chimeCtx.state === 'running') {
-        this.chimeCtx.suspend().catch(() => {});
-      }
-    } catch { /* no WebAudio here — nothing to park */ }
-  }
-
-  // Shop-door bell — the recorded bell-ring sample (public/sounds/door_bell.mp3),
-  // played whenever the entrance or exit doors are passed. No synth fallback:
-  // if the sample has not loaded yet the pass retries the fetch and rings as
-  // soon as it lands; if WebAudio is unavailable the doors open silently.
-  public playDoorChime() {
-    try {
-      if (!this.chimeCtx) this.chimeCtx = new AudioContext();
-      const ctx = this.chimeCtx;
-      ctx.resume().catch(() => {});
-      if (!this.doorBellBuffer) {
-        this.doorBellLoad = null; // a settled-but-failed load retries here
-        this.loadDoorBell(ctx).then(() => { if (this.doorBellBuffer) this.playDoorChime(); });
-        return;
-      }
-      // Background storefront cue — it must sit under movie audio.
-      const gain = ctx.createGain();
-      gain.gain.value = 0.35;
-      gain.connect(ctx.destination);
-      const src = ctx.createBufferSource();
-      src.buffer = this.doorBellBuffer;
-      src.connect(gain);
-      src.start(ctx.currentTime + 0.02);
-    } catch {
-      // Audio unavailable — the doors open silently.
-    }
-  }
+  public suspendChimeForIdle() { return doorChime.suspendChimeForIdle(this); }
+  public playDoorChime() { return doorChime.playDoorChime(this); }
 
   // Called by main.ts when playback ends: fade in from white standing just
   // inside the entrance doors, back in library-select so shelves can be picked.
