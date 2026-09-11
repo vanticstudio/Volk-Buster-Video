@@ -29,6 +29,7 @@ import { stampPosterBadges, getHeroFrontMaterial, disposeHeroFrontDetail, restam
 // its line budget — see dvd-overlays.ts's header). They import this file's
 // shared text/measure helpers back; the cycle is function-level only.
 import { drawDvd2003Overlays, drawDvdBlueOverlays, DVD_BLUE_WRAP_LAYOUT } from './dvd-overlays';
+import { ArtLru } from './art-lru';
 import {
   queueTextureUpload,
   textureArrayManager,
@@ -3533,12 +3534,19 @@ function loadArt(url: string, maxWidth: number, finish: (art: CachedArt | null) 
   });
 }
 
+// Byte budgets for the decoded-art caches; art-lru.ts records the session-long
+// leak they replace. A shelf backdrop is ~0.88 MiB, so 96 MiB keeps about 110 of
+// the most recently viewed. Stills and season posters are a quarter that or less.
+const BACKDROP_CACHE_BYTES = 96 * 1024 * 1024;
+const THUMB_CACHE_BYTES = 16 * 1024 * 1024;
+const artBytes = (art: CachedArt): number => (art.width || 0) * (art.height || 0) * 4;
+
 // Keyed by URL, not movie id: an HTMLImageElement shared Chrome's decoded-image
 // cache across titles with the same art, but ImageBitmaps don't — id-keying
 // made every title pay its own decode+resize (the synthetic harness shares ONE
 // backdrop across all titles, so flipping along a shelf decoded it 60 times,
 // and real libraries dedupe repeated art the same way).
-const backdropImageCache = new Map<string, CachedArt>();
+const backdropImageCache = new ArtLru<CachedArt>(BACKDROP_CACHE_BYTES, artBytes);
 const backdropLoadingMap = new Map<string, Array<() => void>>();
 const backdropKey = (movie: Movie) => movie.backdropUrl || movie.id;
 
@@ -3552,9 +3560,9 @@ const SHELF_BACKDROP_MAX_W = 640;
 // canvas while the photo behind it stayed soft, which reads as a bad scan rather
 // than a budget.
 //
-// One slot, not a second cache. backdropImageCache is unbounded and keyed by URL
-// — every title flipped leaves a bitmap in it — so simply raising its cap would
-// have tripled the bytes of a cache that already grows with the session. Only
+// One slot, not a second cache. backdropImageCache is byte-bounded (art-lru.ts)
+// and sized for SHELF backdrops; the inspected case's copy is drawn 3x larger,
+// so storing it there would push out several shelf entries per inspect. Only
 // one case is ever inspected, so the hero copy is a single entry, replaced when
 // the inspected title changes.
 let heroBackdropKey: string | null = null;
@@ -3649,7 +3657,7 @@ export function getBackdropArt(movie: Movie, onArt: (art: ImageBitmap | HTMLImag
 // placeholder. Mirrors the backdrop loader's dedupe-by-in-flight pattern.
 // Keyed by thumb URL (same reason as backdropImageCache — ImageBitmaps don't
 // share the browser's decoded-image cache, and episodes can share art).
-const episodeThumbCache = new Map<string, CachedArt | null>();
+const episodeThumbCache = new ArtLru<CachedArt | null>(THUMB_CACHE_BYTES, artBytes);
 const episodeThumbLoading = new Map<string, Array<() => void>>();
 const episodeThumbKey = (ep: Episode) => ep.thumbUrl || ep.id;
 
@@ -3682,7 +3690,7 @@ function loadEpisodeThumb(ep: Episode, onLoaded: () => void) {
 // Season POSTER (2:3) images, keyed by their image URL (a season is shared by
 // many episodes, so id-keying like the episode still cache doesn't fit). Same
 // coalescing contract as loadEpisodeThumb.
-const seasonThumbCache = new Map<string, CachedArt | null>();
+const seasonThumbCache = new ArtLru<CachedArt | null>(THUMB_CACHE_BYTES, artBytes);
 const seasonThumbLoading = new Map<string, Array<() => void>>();
 
 function loadSeasonThumb(url: string, onLoaded: () => void) {

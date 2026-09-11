@@ -42,7 +42,8 @@
     "test:unsupportedviewport": "node --experimental-strip-types --test tests/unsupported-viewport.test.ts",
     "test:storesettings": "node --experimental-strip-types --test tests/store-settings.test.ts",
     "check:renderhost": "node tools/check-render-host.mjs",
-    "test:postermirror": "node --experimental-strip-types --test tests/poster-mirror-read.test.ts"
+    "test:postermirror": "node --experimental-strip-types --test tests/poster-mirror-read.test.ts",
+    "test:artlru": "node --experimental-strip-types --test tests/art-lru.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
