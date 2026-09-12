@@ -23,7 +23,8 @@ import type { FrontDoorStore } from './store.ts';
 import type { InstanceSecrets } from './bootstrap.ts';
 import { signSession, verifySession } from './sessions.ts';
 import { grantsAccessTo, isOwnerOf } from './plex-gate.ts';
-import { createPin, claimPin, fetchAccount, fetchResources, listPlexLibraries, type PlexClientIdentity } from './plex-client.ts';
+import { claimPin, fetchAccount, fetchResources, listPlexLibraries, type PlexClientIdentity } from './plex-client.ts';
+import { RateLimiter } from './rate-limit.ts';
 import { connectionForViewer } from './plex-connection.ts';
 import { loadPolicy, savePolicy, type StorePolicy } from './admin-config.ts';
 import { CONSOLE_SETTINGS, validateSettings } from './store-settings.ts';
@@ -88,6 +89,10 @@ export function createAdminServer(
 ) {
   const pins = new Map<number, number>();
   const TTL = 10 * 60_000;
+  /** One plex.tv round trip per claim, on an endpoint that is LAN-only but
+   *  still unauthenticated — the console signs in exactly like the public
+   *  side, so it is limited the same way. */
+  const claimLimiter = new RateLimiter(10 * 60_000, 10);
 
   function session(req: IncomingMessage): { uid: string; token: string; owner: boolean } | null {
     const raw = readCookie(req, COOKIE);
@@ -112,15 +117,26 @@ export function createAdminServer(
       }
 
       // ── Sign-in (its own, see the header on cookies and ports) ────────────
+      //
+      // REGISTERS a pin the page minted at plex.tv, exactly like the public
+      // side — the popup attributes the sign-in to whoever's browser asked,
+      // and the owner's console is no exception.
       if (path === '/auth/pin' && req.method === 'POST') {
         for (const [id, at] of pins) if (now() - at > TTL) pins.delete(id);
         if (pins.size > 20) return json(res, 429, { error: 'too many sign-ins in flight' });
-        const pin = await createPin(identity);
-        pins.set(pin.id, now());
-        return json(res, 200, { id: pin.id, code: pin.code, authUrl: pin.authUrl });
+        const body = await readJson(req) as { id?: number };
+        const id = Number(body?.id);
+        if (!Number.isInteger(id) || id <= 0 || id > Number.MAX_SAFE_INTEGER) {
+          return json(res, 400, { error: 'This page must obtain a sign-in code from plex.tv first.' });
+        }
+        pins.set(id, now());
+        return json(res, 200, { ok: true });
       }
 
       if (path === '/auth/claim' && req.method === 'POST') {
+        if (claimLimiter.limited('console', now())) {
+          return json(res, 429, { error: 'too many sign-in attempts, try again shortly' });
+        }
         const body = await readJson(req) as { id?: number };
         const id = Number(body?.id);
         if (!Number.isFinite(id) || !pins.has(id)) return json(res, 400, { error: 'unknown or expired sign-in' });
@@ -152,15 +168,18 @@ export function createAdminServer(
       }
 
       const s = session(req);
-      if (!s) return html(res, 200, signInPage());
+      if (!s) return html(res, 200, signInPage('', identity));
       if (!s.owner) return html(res, 403, adminDeniedPage(s.uid));
 
       // ── Owner only, from here ─────────────────────────────────────────────
       if (path === '/' && req.method === 'GET') {
         const policy = loadPolicy(db);
         const conn = await connectionForViewer(s.token, cfg.plexMachineId, identity);
+        // The console's library list is fetched SERVER-side, straight from
+        // the Plex server — upstream, never the /plex path, which only means
+        // anything to a browser already behind the public gate.
         const libraries = conn
-          ? await listPlexLibraries(conn.url, conn.token, cfg.plexMachineId)
+          ? await listPlexLibraries(conn.upstream, conn.token, cfg.plexMachineId)
           : [];
         return html(res, 200, adminPage({
           username: s.uid,

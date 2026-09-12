@@ -1,16 +1,21 @@
 /**
- * The plex.tv calls the front door makes — the PIN sign-in dance and the
- * resource list the access gate decides on.
+ * The plex.tv calls the front door makes — the pin claim that completes a
+ * sign-in, and the resource list the access gate decides on.
  *
  * Kept apart from plex-gate.ts on purpose: the DECISION about who gets in is
  * pure and exhaustively tested, and this file is the I/O that feeds it. Mixing
  * them would make the security rule untestable without a network.
  *
- * The client mirrors src/plex-signin.ts, which already does this dance in the
- * browser. It moves server-side here because the viewer's token must never
- * reach the client: the browser gets an opaque session cookie, and the token
- * stays encrypted in the database and is handed only to that viewer's instance
- * over loopback.
+ * THE PIN IS NOT CREATED HERE, and that is deliberate. Plex's OAuth popup
+ * shows the person signing in the IP address of the device that created and
+ * polls the pin — and every request this process makes to plex.tv leaves via
+ * the home WAN, around the Cloudflare tunnel. A pin minted here would print
+ * the operator's home IP to every viewer who signed in. The viewer's browser
+ * creates the pin (src/plex-signin.ts's dance, moved onto the gate page), so
+ * the popup attributes the sign-in to the viewer's own address; this side
+ * only CLAIMS the pin, once, after the popup has done its job — which also
+ * takes the sign-in path from a plex.tv round trip every two seconds down to
+ * exactly one.
  */
 
 import type { PlexResource } from './plex-gate.ts';
@@ -55,46 +60,17 @@ function plexHeaders(identity: PlexClientIdentity, token?: string): Record<strin
   return h;
 }
 
-export interface PlexPin {
-  id: number;
-  code: string;
-  /** Where to send the viewer to authorise this pin. */
-  authUrl: string;
-}
-
 /**
- * Start a sign-in. Returns a pin whose code the viewer authorises on plex.tv.
- *
- * `strong=true` asks for a long, non-guessable code. The short 4-character
- * codes are meant for TV remotes and are brute-forceable by anyone who can
- * poll — which, on a publicly reachable deployment, is everyone.
- */
-export async function createPin(identity: PlexClientIdentity): Promise<PlexPin> {
-  const res = await fetch(`${PLEX_TV}/api/v2/pins?strong=true`, {
-    method: 'POST',
-    headers: plexHeaders(identity),
-    signal: AbortSignal.timeout(PLEX_TV_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`plex.tv refused a pin request: ${res.status}`);
-  const body = await res.json() as { id: number; code: string };
-  const params = new URLSearchParams({
-    clientID: identity.clientId,
-    code: body.code,
-    'context[device][product]': identity.product,
-  });
-  return {
-    id: body.id,
-    code: body.code,
-    authUrl: `https://app.plex.tv/auth#?${params.toString()}`,
-  };
-}
-
-/**
- * Check whether a pin has been authorised yet.
+ * Claim a pin the viewer's browser created and authorised on plex.tv.
  *
  * Returns the token once the viewer approves, null while still pending. A
- * pending pin is the normal case and must not be an error — the client polls
- * this while a person is off completing sign-in in another tab.
+ * pending pin is not an error — it means the person is still in the popup, or
+ * the claim raced a hair ahead of their approval, and the sign-in page
+ * retries briefly before giving up.
+ *
+ * The identifier must be the one the pin was created with (src/plex.ts
+ * documents plex.tv answering 400 otherwise), which is why the gate page
+ * creates pins under this install's clientId rather than one of its own.
  */
 export async function claimPin(id: number, identity: PlexClientIdentity): Promise<string | null> {
   const res = await fetch(`${PLEX_TV}/api/v2/pins/${id}`, {

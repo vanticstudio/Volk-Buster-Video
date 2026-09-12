@@ -85,13 +85,34 @@ afterEach(async () => {
   db.close();
 });
 
+/**
+ * The pin dance the GATE PAGE performs: the browser mints the pin at plex.tv
+ * directly (the stub answers it), then registers the id with the server. The
+ * server never creates pins — that is the IP-attribution fix under test — so
+ * every sign-in in this file starts from the browser's side of the wall.
+ */
+async function browserMintPin(): Promise<number> {
+  const res = await globalThis.fetch('https://plex.tv/api/v2/pins?strong=true', {
+    method: 'POST',
+    headers: { 'x-plex-client-identifier': 'test-client' },
+  });
+  const body = await res.json() as { id: number };
+  return body.id;
+}
+
 /** Sign in and return the session cookie, or the failing response. */
 async function signIn(): Promise<{ cookie: string | null; status: number; body: any }> {
-  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const id = await browserMintPin();
+  const reg = await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  assert.equal(reg.status, 200, 'a freshly minted pin must register');
   const res = await realFetch(`${base}/auth/claim`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 1234 }),
+    body: JSON.stringify({ id }),
   });
   const raw = res.headers.get('set-cookie');
   return {
@@ -243,11 +264,16 @@ test('one viewer cannot read another viewer\'s settings', async () => {
     throw new Error(`unexpected fetch: ${url}`);
   }) as typeof globalThis.fetch;
 
-  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const bobId = await browserMintPin();
+  await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: bobId }),
+  });
   const bobRes = await realFetch(`${base}/auth/claim`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 5678 }),
+    body: JSON.stringify({ id: bobId }),
   });
   const bobCookie = bobRes.headers.get('set-cookie')!.split(';')[0];
 
@@ -326,19 +352,59 @@ test('a signed-out browser is redirected back to the gate', async () => {
   assert.equal(res.headers.get('location'), '/');
 });
 
-// ─── Rate limiting the one public endpoint that calls out ────────────────────
+// ─── Rate limiting the unauthenticated endpoints ─────────────────────────────
 
-test('pin creation is rate limited per caller', async () => {
-  // Without this, anyone who can load the gate page can make this server hammer
-  // plex.tv and exhaust the shared pending-pin table for real viewers.
+test('pin registration is rate limited per caller', async () => {
+  // Without this, anyone who can load the gate page can fill the shared
+  // pending-pin table and crowd real viewers out of it.
   let last = 0;
   for (let i = 0; i < 12; i++) {
     last = (await realFetch(`${base}/auth/pin`, {
       method: 'POST',
-      headers: { 'cf-connecting-ip': '203.0.113.9' },
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' },
+      body: JSON.stringify({ id: 1000 + i }),
     })).status;
   }
   assert.equal(last, 429, 'the 11th+ attempt from one caller must be refused');
+});
+
+test('a pin body-less or malformed is refused, and buys no table slot', async () => {
+  // The endpoint REGISTERS ids the browser minted; it creates nothing. A call
+  // without a body is a broken page or a probe — refused either way.
+  const bare = await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  assert.equal(bare.status, 400);
+  const junk = await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'not-a-pin' }),
+  });
+  assert.equal(junk.status, 400);
+  const negative = await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: -5 }),
+  });
+  assert.equal(negative.status, 400);
+  const still = await realFetch(`${base}/auth/claim`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 424242 }),
+  });
+  assert.equal(still.status, 400, 'nothing was registered, so nothing can be claimed');
+});
+
+test('claiming is rate limited per caller', async () => {
+  // Each claim is a plex.tv round trip from an unauthenticated endpoint. A
+  // legitimate sign-in claims once; this caps the endpoint as a pump.
+  let last = 0;
+  for (let i = 0; i < 12; i++) {
+    last = (await realFetch(`${base}/auth/claim`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.10' },
+      body: JSON.stringify({ id: 1000 + i }),
+    })).status;
+  }
+  assert.equal(last, 429, 'the 11th+ claim from one caller must be refused');
 });
 
 test('a forged client IP does NOT buy a fresh rate-limit bucket', async () => {
@@ -351,7 +417,11 @@ test('a forged client IP does NOT buy a fresh rate-limit bucket', async () => {
   for (let i = 0; i < 14; i++) {
     last = (await realFetch(`${base}/auth/pin`, {
       method: 'POST',
-      headers: { 'cf-connecting-ip': `203.0.113.${i}` },  // a different "IP" each time
+      headers: {
+        'content-type': 'application/json',
+        'cf-connecting-ip': `203.0.113.${i}`,  // a different "IP" each time
+      },
+      body: JSON.stringify({ id: 2000 + i }),
     })).status;
   }
   assert.equal(last, 429, 'varying the header must not reset the limit');
@@ -362,10 +432,16 @@ test('with TRUST_PROXY_HEADERS set, callers are limited per IP', async () => {
   process.env.TRUST_PROXY_HEADERS = '1';
   try {
     for (let i = 0; i < 12; i++) {
-      await realFetch(`${base}/auth/pin`, { method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.7' } });
+      await realFetch(`${base}/auth/pin`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.7' },
+        body: JSON.stringify({ id: 3000 + i }),
+      });
     }
     const other = await realFetch(`${base}/auth/pin`, {
-      method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.8' },
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.8' },
+      body: JSON.stringify({ id: 3999 }),
     });
     assert.equal(other.status, 200, 'a different caller is unaffected');
   } finally {
@@ -432,8 +508,6 @@ test('the status page is still served by the front door, not proxied', async () 
 
 test('over plain HTTP the cookie is NOT marked Secure', async () => {
   // Otherwise the browser drops it and the viewer loops on the sign-in page.
-  const res = await realFetch(`${base}/auth/pin`, { method: 'POST' });
-  assert.equal(res.status, 200);
   const { cookie } = await signIn();
   assert.ok(cookie, 'a session cookie must be issued');
   const raw = cookie!;
@@ -444,11 +518,16 @@ test('behind a TLS-terminating proxy the cookie IS marked Secure', async () => {
   // cloudflared and every reverse proxy speak plain HTTP to this process, so
   // the socket looks insecure even when the viewer is on HTTPS. Trusting the
   // socket alone would drop Secure on exactly the deployment that needs it.
-  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const id = await browserMintPin();
+  await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
   const res = await realFetch(`${base}/auth/claim`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
-    body: JSON.stringify({ id: 1234 }),
+    body: JSON.stringify({ id }),
   });
   assert.match(res.headers.get('set-cookie') || '', /Secure/);
 });
@@ -456,11 +535,16 @@ test('behind a TLS-terminating proxy the cookie IS marked Secure', async () => {
 test('a proxy chain is read from its first entry', async () => {
   // "https, http" means the ORIGINAL request was HTTPS; reading the last hop
   // would get this exactly backwards.
-  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const id = await browserMintPin();
+  await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
   const res = await realFetch(`${base}/auth/claim`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https, http' },
-    body: JSON.stringify({ id: 1234 }),
+    body: JSON.stringify({ id }),
   });
   assert.match(res.headers.get('set-cookie') || '', /Secure/);
 });
@@ -613,11 +697,16 @@ test('a plex.tv outage during re-validation keeps the session', async () => {
 
 test('a plex.tv outage at SIGN-IN fails closed with an honest error', async () => {
   stubResourcesStatus = 503;
-  await realFetch(`${base}/auth/pin`, { method: 'POST' });
+  const id = await browserMintPin();
+  await realFetch(`${base}/auth/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
   const res = await realFetch(`${base}/auth/claim`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 1234 }),
+    body: JSON.stringify({ id }),
   });
   assert.equal(res.status, 502, 'sign-in must refuse when the gate cannot be evaluated');
   assert.match((await res.json()).error, /reach plex\.tv/i, 'the error must not claim a permission problem');
@@ -640,4 +729,229 @@ test('a real revocation still wipes sessions at re-validation', async () => {
   const reSignIn = await signIn();
   assert.equal(reSignIn.status, 200);
   assert.ok(reSignIn.cookie, 'a re-shared person can sign straight back in');
+});
+
+test('the setup code is rate limited, not merely hard to guess', async () => {
+  // Twelve hex characters are not brute-forceable online, but there is no
+  // reason to let anyone try at line rate — /setup/claim is the door to
+  // owning the whole store, and it is unauthenticated until setup completes.
+  const unconfigured = {
+    sessionSecret: cfg.sessionSecret,
+    tokenKey: '',
+    setupToken: 'deadbeefcafe',
+    plexMachineId: null,
+    plexClientId: 'setup-test',
+  };
+  const setupDb = new FrontDoorStore(':memory:', cfg.tokenKey);
+  const setupHandler = createFrontDoor(cfg, setupDb, () => NOW, unconfigured);
+  const setupServer = createServer((req, res) => { void setupHandler(req, res); });
+  await new Promise<void>((r) => setupServer.listen(0, '127.0.0.1', r));
+  const setupBase = `http://127.0.0.1:${(setupServer.address() as { port: number }).port}`;
+  try {
+    let last = 0;
+    for (let i = 0; i < 12; i++) {
+      last = (await realFetch(`${setupBase}/setup/claim`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: 'aaaa' }),
+      })).status;
+    }
+    assert.equal(last, 429, 'the 11th+ guess from one caller must be refused');
+  } finally {
+    await new Promise<void>((r) => setupServer.close(() => r()));
+    setupDb.close();
+  }
+});
+
+// ─── The sign-in dance belongs to the browser ────────────────────────────────
+//
+// Plex's OAuth popup shows the person signing in the IP of the device that
+// minted and polled the pin. Every request this server makes to plex.tv
+// leaves through the home WAN, around the tunnel — so a server-minted pin
+// printed the operator's public IP to every viewer (the incident that drove
+// this). These pin the contract that keeps the dance on the viewer's side.
+
+test('the gate page mints and polls its pin at plex.tv, from the browser', async () => {
+  const body = await (await realFetch(`${base}/`)).text();
+  assert.match(body, /plex\.tv\/api\/v2\/pins\?strong=true/, 'the browser mints the pin itself');
+  assert.match(body, /app\.plex\.tv\/auth\#?\?/, 'the popup URL is built client-side');
+  assert.match(body, /plex\.tv\/api\/v2\/pins\/'\s*\+\s*pinId/, 'the browser polls the pin itself');
+  assert.match(body, /\/auth\/pin/, 'the server is told which pin id to expect');
+  assert.match(body, /\/auth\/claim/, 'the server does the one authoritative claim');
+  // The identity the pin is minted under must be the INSTALL's, so the
+  // server-side claim (which must use the creator's identifier) succeeds.
+  assert.match(body, /volkbuster-front-door/, 'the install client identifier is on the page');
+});
+
+test('the gate page CSP allows exactly one third party: plex.tv', async () => {
+  const res = await realFetch(`${base}/`);
+  assert.match(res.headers.get('content-security-policy') || '', /connect-src[^;]*'self' https:\/\/plex\.tv/);
+});
+
+// ─── The Plex proxy: the browser's only route to the server ─────────────────
+//
+// The store used to be handed the server's own plex.direct address — the
+// operator's public IP, encoded in the hostname, in every viewer's
+// localStorage, with all media traffic flowing around the tunnel. The browser
+// is now handed `/plex` and every request goes through the gate. These use a
+// real upstream so the pipe, the rewriting and the gating are all exercised.
+
+const LEAKY_ORIGIN = 'https://115-70-96-154.leaky.plex.direct:32400';
+
+/** A Plex stand-in that leaks its own address the way real playlists do. */
+async function startPlexUpstream(): Promise<{ port: number; close: () => Promise<void> }> {
+  const server = createServer((req, res) => {
+    const url = req.url || '/';
+    if (url.startsWith('/identity')) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ MediaContainer: { machineIdentifier: MACHINE } }));
+      return;
+    }
+    if (url.includes('start.m3u8')) {
+      res.writeHead(200, { 'content-type': 'application/vnd.apple.mpegurl' });
+      res.end(`#EXTM3U\n${LEAKY_ORIGIN}/video/:/transcode/universal/segment-1.ts?X-Plex-Token=t\n`);
+      return;
+    }
+    if (url.startsWith('/jump')) {
+      res.writeHead(302, { location: `${LEAKY_ORIGIN}/library/redirected` });
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    port: (server.address() as { port: number }).port,
+    close: () => new Promise((done) => server.close(() => done())),
+  };
+}
+
+function resourcesWithConnections(uri: string): unknown[] {
+  return [{
+    clientIdentifier: MACHINE,
+    provides: 'server',
+    owned: false,
+    home: false,
+    name: 'Home',
+    accessToken: 'per-server-token',
+    connections: [
+      { uri, local: true, relay: false, protocol: 'http', address: '192.168.1.50' },
+      { uri: LEAKY_ORIGIN, local: false, relay: false, protocol: 'https', address: '115.70.96.154' },
+    ],
+  }];
+}
+
+test('an unauthenticated /plex request meets the gate, like the store', async () => {
+  // Adding a proxy route is exactly the change that could widen the gate by
+  // accident, so this re-asserts the thing that must not have moved.
+  const res = await realFetch(`${base}/plex/identity`);
+  assert.match(await res.text(), /Members only/, 'no session, no Plex');
+});
+
+test('a signed-in browser reaches Plex only through the proxy', async () => {
+  const upstream = await startPlexUpstream();
+  try {
+    stubResources = resourcesWithConnections(`http://127.0.0.1:${upstream.port}`);
+    const { cookie } = await signIn();
+    const res = await realFetch(`${base}/plex/identity`, { headers: { cookie: cookie! } });
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), /machineIdentifier/);
+  } finally {
+    await upstream.close();
+  }
+});
+
+test('a proxied playlist cannot leak the server address', async () => {
+  const upstream = await startPlexUpstream();
+  try {
+    stubResources = resourcesWithConnections(`http://127.0.0.1:${upstream.port}`);
+    const { cookie } = await signIn();
+    const res = await realFetch(`${base}/plex/video/:/transcode/universal/start.m3u8`, {
+      headers: { cookie: cookie! },
+    });
+    const body = await res.text();
+    assert.match(body, /\/plex\/video\/:/, 'segment URLs now name the proxy');
+    assert.doesNotMatch(body, /plex\.direct|115-70-96-154|115\.70\.96\.154/, 'no address survives');
+  } finally {
+    await upstream.close();
+  }
+});
+
+test('a redirect off the server own address is rewritten to the proxy', async () => {
+  const upstream = await startPlexUpstream();
+  try {
+    stubResources = resourcesWithConnections(`http://127.0.0.1:${upstream.port}`);
+    const { cookie } = await signIn();
+    const res = await realFetch(`${base}/plex/jump`, {
+      headers: { cookie: cookie! }, redirect: 'manual',
+    });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get('location'), '/plex/library/redirected');
+  } finally {
+    await upstream.close();
+  }
+});
+
+test('the bootstrap hands the browser a path, never an address', async () => {
+  // The document is only injected when the store upstream answers, so this
+  // stands in for `vite preview` on the configured loopback port.
+  const store = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><html><head></head><body></body></html>');
+  });
+  await new Promise<void>((r) => store.listen(1420, '127.0.0.1', r));
+  const upstream = await startPlexUpstream();
+  try {
+    stubResources = resourcesWithConnections(`http://127.0.0.1:${upstream.port}`);
+    const { cookie } = await signIn();
+    const res = await realFetch(`${base}/`, { headers: { cookie: cookie!, accept: 'text/html' } });
+    const body = await res.text();
+    assert.match(body, /"jellyfin_url":"\/plex"/, 'the store is pointed at the proxy base');
+    assert.match(body, /\\"url\\":\\"\/plex\\",\\"token/, 'so is the media source inside it');
+    assert.doesNotMatch(body, /plex\.direct|115-70-96-154|115\.70\.96\.154/,
+      'the operator address must not appear anywhere in the page');
+  } finally {
+    await upstream.close();
+    await new Promise<void>((r) => store.close(() => r()));
+  }
+});
+
+test('a dead upstream answers 502 without naming the address', async () => {
+  // Port 1 on loopback refuses everything; the viewer's answer must be an
+  // outage, not a disclosure of where the pipe was pointed.
+  stubResources = resourcesWithConnections('http://127.0.0.1:1');
+  const { cookie } = await signIn();
+  const res = await realFetch(`${base}/plex/identity`, { headers: { cookie: cookie! } });
+  assert.equal(res.status, 502);
+  const body = await res.text();
+  assert.doesNotMatch(body, /127\.0\.0\.1|port|address/i);
+  assert.match(body, /not reachable/i);
+});
+
+// ─── Baseline hardening on every response ───────────────────────────────────
+
+test('every response carries the hardening floor', async () => {
+  const res = await realFetch(`${base}/healthz`);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(res.headers.get('permissions-policy') || '', /microphone=\(\)/);
+  assert.equal(res.headers.get('cross-origin-resource-policy'), 'same-origin');
+});
+
+test('HSTS is sent only when the request arrived over TLS', async () => {
+  const secure = await realFetch(`${base}/healthz`, { headers: { 'x-forwarded-proto': 'https' } });
+  assert.match(secure.headers.get('strict-transport-security') || '', /max-age/);
+  const plain = await realFetch(`${base}/healthz`);
+  assert.equal(plain.headers.get('strict-transport-security'), null,
+    'an HSTS header on a LAN HTTP response would lock the owner out of their own store');
+});
+
+test('a proxied document refuses cross-origin framing and sniffing', async () => {
+  // The 502 from the absent store still carries the floor — the error path is
+  // exactly the one a new route is most likely to forget.
+  const { cookie } = await signIn();
+  const res = await realFetch(`${base}/assets/main.js`, { headers: { cookie: cookie! } });
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(res.headers.get('content-security-policy') || '', /frame-ancestors 'self'/);
 });

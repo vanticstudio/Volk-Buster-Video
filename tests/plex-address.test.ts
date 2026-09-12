@@ -98,6 +98,22 @@ test('an explicit scheme is never rewritten', async () => {
   assert.equal(normalizePlexUrl(''), '');
 });
 
+test('a same-origin path is an address, not a broken URL to invent', async () => {
+  // The front door hands the store `/plex` as the server base — every Plex
+  // request then goes through the gate the page is already behind, and the
+  // real server address (which encodes the operator's public IP) never
+  // reaches the browser. Normalising it used to manufacture
+  // `http:///plex`: non-empty, address-shaped, and nonsense — the #125 bug
+  // again, via a different door.
+  await onPage('https:', () => {
+    assert.equal(normalizePlexUrl('/plex'), '/plex');
+    assert.equal(normalizePlexUrl('/plex/'), '/plex');
+  });
+  await onPage('http:', () => {
+    assert.equal(normalizePlexUrl('/plex'), '/plex');
+  });
+});
+
 test('isLoopbackHost knows the local machine from the LAN', () => {
   for (const h of ['localhost', 'LOCALHOST', 'foo.localhost', '127.0.0.1', '127.1.2.3', '::1'])
     assert.equal(isLoopbackHost(h), true, h);

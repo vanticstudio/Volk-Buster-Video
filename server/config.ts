@@ -34,6 +34,17 @@ export interface FrontDoorConfig {
   distDir: string;
   /** Origin of the internal store app (vite preview), loopback only. */
   appOrigin: string;
+  /**
+   * The public hostname this store is reached by, when the operator pins it.
+   *
+   * The gate page builds its link-preview card from the request's Host header,
+   * which is attacker-controlled; the escaping and the shape check make a
+   * forged host harmless, and leaving this unset keeps LAN access natural
+   * (the card simply names whatever address the visitor used). Setting this
+   * pins the card to the one name the tunnel routes — everything else yields
+   * a card-less page.
+   */
+  publicHostname: string;
 }
 
 function num(name: string, fallback: number): number {
@@ -76,6 +87,7 @@ export function loadConfig(): { cfg: FrontDoorConfig; instance: InstanceSecrets 
     revalidateAfterMs: num('REVALIDATE_AFTER_MS', 24 * 3600_000), // 1 day
     distDir: process.env.DIST_DIR || './dist',
     appOrigin: process.env.APP_ORIGIN || 'http://127.0.0.1:1420',
+    publicHostname: (process.env.PUBLIC_HOSTNAME || '').trim(),
   };
   return { cfg, instance };
 }

@@ -85,7 +85,9 @@ function shell(title: string, body: string, script = ''): string {
 }
 
 /** Step 1 and 2 in one page: prove you own the host, then pick a server. */
-export function setupPage(): string {
+export function setupPage(
+  identity: { clientId: string; product: string; version: string; device: string },
+): string {
   const body = `
   <div id="err" class="err" hidden></div>
 
@@ -118,6 +120,7 @@ export function setupPage(): string {
 
   const script = `
 (function(){
+  var PLEX = ${JSON.stringify({ clientId: identity.clientId, product: identity.product, version: identity.version, device: identity.device })};
   var errEl=document.getElementById('err');
   var stepToken=document.getElementById('step-token');
   var stepPlex=document.getElementById('step-plex');
@@ -125,7 +128,7 @@ export function setupPage(): string {
   var claim=document.getElementById('claim');
   var begin=document.getElementById('begin');
   var status=document.getElementById('plexstatus');
-  var pinId=null, tries=0;
+  var pinId=null, tries=0, claimTries=0;
 
   function fail(m){ errEl.textContent=m; errEl.hidden=false; }
   function show(el){ [stepToken,stepPlex,stepServer].forEach(function(s){ s.hidden = s!==el; }); }
@@ -144,13 +147,39 @@ export function setupPage(): string {
       }).catch(function(){ claim.disabled=false; fail('Could not reach the server.'); });
   });
 
-  function poll(){
+  function plexHeaders(){
+    return {
+      'Accept':'application/json',
+      'X-Plex-Product':PLEX.product,
+      'X-Plex-Version':PLEX.version,
+      'X-Plex-Client-Identifier':PLEX.clientId,
+      'X-Plex-Device':PLEX.device,
+      'X-Plex-Platform':'Web'
+    };
+  }
+
+  // The pin is minted and polled HERE, in the owner's own browser — Plex's
+  // popup attributes the sign-in to the requesting address, and a pin minted
+  // by this process would show the home WAN's IP. One /setup/claim-pin call
+  // at the end does the authoritative claim server-side.
+  function pollPlex(){
     if(++tries>300) return fail('That sign-in expired. Reload and try again.');
+    fetch('https://plex.tv/api/v2/pins/'+pinId,{headers:plexHeaders()})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(pin){ if(pin && pin.authToken){ poll(); return; } setTimeout(pollPlex,2000); })
+      .catch(function(){ setTimeout(pollPlex,3000); });
+  }
+
+  function poll(){
+    // Same shape as the gate page's claim: briefly patient with the
+    // hair's-breadth race where the browser saw the approval first, then
+    // honest — a retry loop without a cap would hammer the server's one
+    // plex.tv round trip forever.
     fetch('/setup/claim-pin',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({id:pinId})})
       .then(function(r){ return r.json().then(function(b){return {s:r.status,b:b};}); })
       .then(function(res){
-        if(res.s===202){ setTimeout(poll,2000); return; }
+        if(res.s===202){ if(++claimTries>6) return fail('Sign-in failed. Try again.'); setTimeout(poll,1000); return; }
         if(res.s!==200) return fail(res.b.error||'Sign-in failed.');
         renderServers(res.b.servers||[]);
       }).catch(function(){ setTimeout(poll,3000); });
@@ -183,13 +212,19 @@ export function setupPage(): string {
 
   begin.addEventListener('click',function(){
     begin.disabled=true; begin.textContent='Contacting Plex…'; errEl.hidden=true;
-    fetch('/auth/pin',{method:'POST'})
-      .then(function(r){ if(!r.ok) throw new Error('pin'); return r.json(); })
+    fetch('https://plex.tv/api/v2/pins?strong=true',{method:'POST',headers:plexHeaders()})
+      .then(function(r){ if(!r.ok) throw new Error('plex.tv refused the pin'); return r.json(); })
+      .then(function(pin){
+        return fetch('/auth/pin',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({id:pin.id})})
+          .then(function(reg){ if(!reg.ok) throw new Error('the server refused the pin'); return pin; });
+      })
       .then(function(pin){
         pinId=pin.id;
+        var params=new URLSearchParams({clientID:PLEX.clientId,code:pin.code,'context[device][product]':PLEX.product});
         status.textContent='Approve it in the Plex tab, then come back here.';
-        window.open(pin.authUrl,'_blank','noopener');
-        poll();
+        window.open('https://app.plex.tv/auth#?'+params.toString(),'_blank','noopener');
+        pollPlex();
       }).catch(function(){
         begin.disabled=false; begin.textContent='Sign in with Plex';
         fail('Could not reach Plex just now.');

@@ -11,22 +11,39 @@
  * have had to do it, and would have needed the server's address to do it with.
  *
  * The front door already knows all of it. This turns what it knows into the
- * shape the store reads at boot.
+ * shape the store reads at boot — with one hard rule the IP leak taught: the
+ * browser is told `/plex`, a path on the origin it is already on, and NEVER
+ * one of Plex's own advertised addresses. Those encode the operator's public
+ * IP (https://115-70-96-154.<hash>.plex.direct:32400), and handing one out
+ * published it to every viewer's localStorage while routing all media traffic
+ * around the tunnel. The front door proxies /plex to the real address
+ * (plex-proxy.ts); the browser never learns it.
  *
- * ON HANDING THE BROWSER A PLEX TOKEN: it is that viewer's OWN token, delivered
- * over their authenticated session, and the store has to talk to Plex directly
- * to fetch artwork and stream video. Plex's own web client works exactly this
- * way. What is NOT done is handing anyone the owner's token, or a token for a
- * server they were not admitted to: the connection is resolved from the
- * requester's own credentials every time.
+ * ON HANDING THE BROWSER A PLEX TOKEN: it is that viewer's OWN per-server
+ * token, delivered over their authenticated session. The store appends it to
+ * its Plex requests, and Plex's own web client works exactly this way. It is
+ * deliberately inert on its own: it authenticates against ONE server, and the
+ * only route to that server is the session-gated proxy. What is NOT done is
+ * handing anyone the owner's token, or a token for a server they were not
+ * admitted to: the connection is resolved from the requester's own
+ * credentials every time.
  */
 
 import type { PlexClientIdentity } from './plex-client.ts';
 import { fetchResources } from './plex-client.ts';
+import { PLEX_PROXY_BASE } from './plex-proxy.ts';
 
 export interface StoreConnection {
-  /** Base URL the browser should talk to. */
+  /** Base URL the BROWSER is given — always this front door's own /plex path.
+   *  The real address never reaches a page: it would sit in localStorage
+   *  forever and carry every artwork and video request past the tunnel. */
   url: string;
+  /** The address the FRONT DOOR proxies /plex to, resolved from the viewer's
+   *  own token. Server-side only. */
+  upstream: string;
+  /** Every origin Plex advertises for this server, so absolute URLs in
+   *  proxied playlists and documents can be rewritten to the proxy base. */
+  origins: string[];
   /** Per-server access token for THIS viewer. Not their account token. */
   token: string;
   machineId: string;
@@ -41,39 +58,80 @@ interface PlexConnectionEntry {
   address: string;
 }
 
+/** Scheme + host + port of a connection URI, or null when it has none.
+ *
+ *  BOTH spellings are returned when they differ. `new URL` erases a default
+ *  port outright — `https://host:443` parses to origin `https://host` — but a
+ *  playlist quoting the address Plex advertised may still write `:443`
+ *  explicitly, and a rewrite set missing one spelling is the rewrite that
+ *  leaks. */
+function originsOf(uri: string): string[] {
+  const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]+)/i.exec(String(uri || ''));
+  if (!match) return [];
+  const scheme = match[1].toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') return [];
+  const withPort = `${scheme}://${match[2]}`;
+  let origin: string;
+  try {
+    origin = new URL(withPort).origin;
+  } catch {
+    return [];
+  }
+  return origin === withPort ? [origin] : [origin, withPort];
+}
+
+export interface UpstreamChoice {
+  uri: string;
+  origins: string[];
+}
+
 /**
- * Choose which of a server's advertised addresses the browser should use.
+ * Choose which of a server's advertised addresses the FRONT DOOR proxies to,
+ * and collect every advertised origin for the rewrite set.
  *
- * Plex advertises several per server and they are not interchangeable:
+ * The constraints are the browser's turned inside out. When the store talked
+ * to Plex directly, the choice had to survive mixed-content rules and dead
+ * LAN addresses, so remote HTTPS won. Now the front door — which shares the
+ * Plex server's own network — makes the requests, so the order flips:
  *
- *  - A LAN address is fastest and lowest-latency, but only reachable from the
- *    same network. A viewer on their phone across town cannot use it, and the
- *    failure is a long hang rather than a clean error.
+ *  - A LAN address is fastest and never leaves the home network. From the
+ *    browser it was useless across town; from here it is the best option,
+ *    and it also avoids NAT hairpin, where a machine inside the network
+ *    reaches its own public address through the router — which some
+ *    consumer routers simply do not do.
  *  - A plex.direct HTTPS address works from anywhere and carries a real
- *    certificate, which matters because the store itself is served over HTTPS
- *    and a browser refuses to let an HTTPS page fetch from plain HTTP.
+ *    certificate, which still matters for a LAN-unreachable deployment (the
+ *    container on a different subnet, Plex behind a VLAN).
  *  - A relay address works when nothing else does, but Plex rate-limits and
- *    bandwidth-caps it, so it is a last resort rather than a default.
+ *    bandwidth-caps it, so it stays a last resort.
  *
- * Preferring HTTPS non-relay is therefore not a stylistic choice: on a store
- * reachable over a public HTTPS domain, a LAN or plain-HTTP address is one the
- * browser will refuse outright as mixed content.
+ * `origins` is EVERY advertised address, not just the chosen one: a playlist
+ * may name any address the server advertises, and the rewrite set that misses
+ * one is the rewrite that leaks.
  */
-export function pickConnection(connections: readonly PlexConnectionEntry[]): string | null {
+export function pickUpstream(
+  connections: readonly PlexConnectionEntry[] | null | undefined,
+): UpstreamChoice | null {
   if (!Array.isArray(connections) || connections.length === 0) return null;
-  const usable = connections.filter((c) => c && typeof c.uri === 'string' && c.uri);
+  const usable = connections.filter((c) => c && typeof c.uri === 'string'
+    && /^https?:\/\//i.test(c.uri));
+  if (!usable.length) return null;
+
+  const origins = [...new Set(usable.flatMap((c) => originsOf(c.uri)))];
+
+  const local = usable.find((c) => c.local);
+  if (local) return { uri: local.uri, origins };
 
   const https = usable.filter((c) => c.protocol === 'https' && !c.relay);
-  // Remote before local: a local URI only helps viewers on the same LAN, and
-  // the ones who are can still reach the remote address.
-  const remoteHttps = https.find((c) => !c.local);
-  if (remoteHttps) return remoteHttps.uri;
-  if (https.length) return https[0].uri;
+  if (https.length) return { uri: https[0].uri, origins };
+
+  const plain = usable.filter((c) => c.protocol !== 'https' && !c.relay);
+  if (plain.length) return { uri: plain[0].uri, origins };
 
   const relay = usable.find((c) => c.relay);
-  if (relay) return relay.uri;
+  if (relay) return { uri: relay.uri, origins };
 
-  return usable[0].uri;
+  return { uri: usable[0].uri, origins };
 }
 
 /**
@@ -107,14 +165,24 @@ export async function connectionForViewer(
 
   if (!server) return null;
 
-  const url = pickConnection(server.connections || []);
+  const pick = pickUpstream(server.connections || []);
   // The per-resource accessToken, not the account token: it is scoped to this
   // one server, so a leak from the browser cannot reach the viewer's other
   // servers or their Plex account.
   const token = server.accessToken || viewerToken;
-  if (!url) return null;
+  if (!pick) return null;
 
-  return { url: url.replace(/\/$/, ''), token, machineId, name: server.name || 'Plex' };
+  return {
+    // The browser gets the proxy path and nothing else. With the real
+    // address in localStorage, every viewer held the operator's public IP
+    // permanently, and every byte of artwork and video bypassed the tunnel.
+    url: PLEX_PROXY_BASE,
+    upstream: pick.uri,
+    origins: pick.origins,
+    token,
+    machineId,
+    name: server.name || 'Plex',
+  };
 }
 
 /**

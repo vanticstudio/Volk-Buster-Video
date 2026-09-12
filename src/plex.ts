@@ -207,6 +207,15 @@ export function normalizePlexUrl(url: string, opts?: { secureDefault?: boolean }
   // never fired, and the connect went out against nonsense. Blank in, blank
   // out, and the caller's own emptiness check then does the right thing.
   if (/^https?:$/i.test(cleaned)) return '';
+  // A SAME-ORIGIN PATH IS AN ADDRESS. The front door hands the store `/plex`
+  // as the server's base — every Plex request goes through the gate it is
+  // already behind, and the real server address (which encodes the operator's
+  // public IP) never reaches the page. Builders concatenate `base + path`, and
+  // fetch/img/video resolve the result against the document, so passing it
+  // through unchanged is all this needs. Normalising it into an http:// URL
+  // would manufacture an address like `http:///plex` — the exact bug #125
+  // fixed, back from the dead.
+  if (cleaned.startsWith('/')) return cleaned;
   if (!/^https?:\/\//i.test(cleaned)) {
     // This used to be an unconditional `http://`, which on the hosted build
     // manufactured an address the browser refuses to send (#125). Take the

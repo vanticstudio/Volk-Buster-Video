@@ -16,12 +16,12 @@
  * Written portrait-first. A phone is a first-class viewer in this fork, and
  * this is the first screen anyone sees on one.
  *
- * THE PIN CODE IS DELIBERATELY NOT SHOWN. `createPin` asks for a strong code,
- * which is ~25 characters — and strong codes cannot be typed into plex.tv/link,
- * which is the only reason a person would ever want to read one. Displaying it
- * gave a wrapped wall of characters that looked like something to act on and
- * was not. The link is the whole mechanism; the code is an implementation
- * detail of it.
+ * THE PIN CODE IS DELIBERATELY NOT SHOWN. The pin is asked for with
+ * `strong=true`, which is ~25 characters — and strong codes cannot be typed
+ * into plex.tv/link, which is the only reason a person would ever want to read
+ * one. Displaying it gave a wrapped wall of characters that looked like
+ * something to act on and was not. The link is the whole mechanism; the code
+ * is an implementation detail of it.
  */
 
 const BLUE = '#1a49c2';   // HALCYON_BLUE  — src/logo-spec.ts
@@ -174,13 +174,35 @@ ${script ? `<script>${script}</script>` : ''}
 /**
  * The gate.
  *
- * The pin is created by the BROWSER on load rather than baked in server-side,
- * for two reasons. It keeps a crawler hitting this URL from creating a pin at
- * plex.tv, and it means the "Sign in" control is a real anchor the person
- * genuinely clicks — so `target="_blank"` survives popup blockers, which
- * matters most on the phones this fork is meant to serve.
+ * THE WHOLE PIN DANCE LIVES IN THE VIEWER'S BROWSER, and that is a security
+ * decision, not a convenience. Plex's OAuth popup shows the person signing in
+ * the IP address of the device that minted the pin and polls it — and every
+ * request this server makes to plex.tv leaves through the home WAN, around
+ * the Cloudflare tunnel. A pin minted server-side printed the operator's
+ * public IP to every viewer who signed in. Created and polled here, the only
+ * plex.tv requests before authorisation come from the viewer's own address,
+ * which is exactly what the popup should say.
+ *
+ * The server's part is registration and the final claim: the browser tells
+ * /auth/pin which pin id to expect (rate-limited, bounded), polls plex.tv
+ * itself, and calls /auth/claim once at the end — where the gate runs and the
+ * token is exchanged server-side. The viewer's Plex account token never
+ * lands in this page: the browser's own poll response may carry it, but
+ * nothing here reads, stores or sends it.
+ *
+ * This shape also means a sign-in costs the server ONE plex.tv round trip
+ * instead of a poll every two seconds for as long as the popup is open.
+ *
+ * The pin is created on click rather than on load for two more reasons: it
+ * keeps a crawler hitting this URL from creating pins at plex.tv, and it
+ * means the "Sign in" control is a real anchor the person genuinely clicks —
+ * so `target="_blank"` survives popup blockers, which matters most on the
+ * phones this fork is meant to serve.
  */
-export function signInPage(origin = ''): string {
+export function signInPage(
+  origin = '',
+  identity: { clientId: string; product: string; version: string; device: string },
+): string {
   const body = `
   <h1>Members only</h1>
   <p>This store is for people with access to its Plex library. Sign in with
@@ -202,6 +224,7 @@ export function signInPage(origin = ''): string {
 
   const script = `
 (function () {
+  var PLEX = ${JSON.stringify({ clientId: identity.clientId, product: identity.product, version: identity.version, device: identity.device })};
   var begin = document.getElementById('begin');
   var start = document.getElementById('start');
   var waiting = document.getElementById('waiting');
@@ -219,10 +242,18 @@ export function signInPage(origin = ''): string {
     begin.textContent = 'Try again';
   }
 
-  function poll() {
-    // Give up after ~10 minutes; a pin does not live longer than that anyway,
-    // and a tab left open overnight should not hammer the server forever.
-    if (++tries > 300) return fail('That sign-in expired. Start again.');
+  function plexHeaders() {
+    return {
+      'Accept': 'application/json',
+      'X-Plex-Product': PLEX.product,
+      'X-Plex-Version': PLEX.version,
+      'X-Plex-Client-Identifier': PLEX.clientId,
+      'X-Plex-Device': PLEX.device,
+      'X-Plex-Platform': 'Web'
+    };
+  }
+
+  function claim(retries) {
     fetch('/auth/claim', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -236,28 +267,63 @@ export function signInPage(origin = ''): string {
         location.href = '/';
         return;
       }
-      if (res.status === 202) { setTimeout(poll, 2000); return; }
+      // 202 is the hair's-breadth race where the browser saw the approval
+      // before the server's own claim did. Briefly patient, then honest.
+      if (res.status === 202 && retries < 6) {
+        setTimeout(function () { claim(retries + 1); }, 1000);
+        return;
+      }
       fail((res.body && res.body.error) || 'Sign-in failed.');
-    }).catch(function () { setTimeout(poll, 3000); });
+    }).catch(function () {
+      if (retries < 6) { setTimeout(function () { claim(retries + 1); }, 1500); return; }
+      fail('Sign-in failed. Try again.');
+    });
+  }
+
+  function pollPlex() {
+    // Give up after ~10 minutes; a pin does not live longer than that anyway,
+    // and a tab left open overnight should not poll plex.tv forever.
+    if (++tries > 300) return fail('That sign-in expired. Start again.');
+    fetch('https://plex.tv/api/v2/pins/' + pinId, { headers: plexHeaders() })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (pin) {
+        if (pin && pin.authToken) { claim(0); return; }
+        setTimeout(pollPlex, 2000);
+      })
+      .catch(function () { setTimeout(pollPlex, 3000); });
   }
 
   begin.addEventListener('click', function () {
     begin.disabled = true;
     begin.textContent = 'Contacting Plex…';
     errEl.hidden = true;
-    fetch('/auth/pin', { method: 'POST' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('pin');
-        return r.json();
+    // Minted HERE, from the viewer's own address — see the block comment.
+    fetch('https://plex.tv/api/v2/pins?strong=true', { method: 'POST', headers: plexHeaders() })
+      .then(function (r) { if (!r.ok) throw new Error('plex.tv refused the pin'); return r.json(); })
+      .then(function (pin) {
+        return fetch('/auth/pin', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: pin.id })
+        }).then(function (reg) {
+          if (!reg.ok) throw new Error('the server refused the pin');
+          return pin;
+        });
       })
       .then(function (pin) {
         pinId = pin.id;
-        linkEl.href = pin.authUrl;
+        var params = new URLSearchParams({
+          clientID: PLEX.clientId,
+          code: pin.code,
+          'context[device][product]': PLEX.product
+        });
+        var url = 'https://app.plex.tv/auth#?' + params.toString();
+        linkEl.href = url;
         start.hidden = true;
         waiting.hidden = false;
         // The person is already mid-gesture, so this opens without a blocker.
-        window.open(pin.authUrl, '_blank', 'noopener');
-        poll();
+        window.open(url, '_blank', 'noopener');
+        pollPlex();
       })
       .catch(function () {
         fail('Could not reach Plex just now. Try again in a moment.');

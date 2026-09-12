@@ -11,9 +11,15 @@
  *
  * WHAT IT DOES
  *   GET  /healthz              liveness, unauthenticated by design
- *   POST /auth/pin             begin Plex sign-in, returns a code + auth URL
+ *   POST /auth/pin             register a pin the VIEWER'S BROWSER minted at
+ *                              plex.tv (the popup must attribute the sign-in
+ *                              to the viewer's own IP — a pin minted here
+ *                              would publish the operator's home IP to every
+ *                              viewer, which is the leak this fork fixed)
  *   POST /auth/claim           exchange an authorised pin for a session cookie
  *   POST /auth/signout         drop this session
+ *   *    /plex/**              the viewer's own Plex server, proxied so the
+ *                              browser only ever sees this origin
  *   GET  /api/me               who am I, and am I the owner
  *   GET  /api/config           this viewer's store settings
  *   PUT  /api/config           write one setting, owner rules enforced here
@@ -31,12 +37,14 @@ import { loadConfig, type FrontDoorConfig } from './config.ts';
 import { FrontDoorStore } from './store.ts';
 import { signSession, verifySession, type SessionPayload } from './sessions.ts';
 import { grantsAccessTo, isOwnerOf } from './plex-gate.ts';
-import { createPin, claimPin, fetchAccount, fetchResources, type PlexClientIdentity } from './plex-client.ts';
+import { claimPin, fetchAccount, fetchResources, type PlexClientIdentity } from './plex-client.ts';
+import { RateLimiter } from './rate-limit.ts';
 import { assertWritable } from './owner-keys.ts';
 import { signInPage, signedInPage } from './signin-page.ts';
 import { proxyToApp } from './app-proxy.ts';
 import { setupPage } from './setup-page.ts';
 import { connectionForViewer, connectionBootstrapScript, type StoreConnection } from './plex-connection.ts';
+import { proxyPlex, plexProxyTarget } from './plex-proxy.ts';
 import { loadPolicy, policyKeys } from './admin-config.ts';
 import { startAdminServer } from './admin.ts';
 import { APP_VERSION } from './version.ts';
@@ -47,6 +55,16 @@ const COOKIE = 'hv_session';
 const PIN_TTL_MS = 10 * 60_000;
 const PIN_RATE_WINDOW_MS = 10 * 60_000;
 const PIN_RATE_MAX = 10;
+/**
+ * `/auth/claim` is one plex.tv round trip per call, and it is unauthenticated.
+ * A legitimate sign-in calls it once or twice — the browser polls plex.tv
+ * itself and claims once at the end — so a small window is plenty, and the
+ * tighter limit keeps a stranger from turning this endpoint into a plex.tv
+ * traffic pump. Unknown pin ids are refused before any plex.tv call, so the
+ * cheap hammering path is already closed; this bounds the expensive one.
+ */
+const CLAIM_RATE_WINDOW_MS = 10 * 60_000;
+const CLAIM_RATE_MAX = 10;
 
 /**
  * Who is calling, for rate-limiting purposes.
@@ -121,11 +139,16 @@ function html(res: ServerResponse, status: number, body: string): void {
     'x-content-type-options': 'nosniff',
     'x-frame-options': 'DENY',
     'referrer-policy': 'no-referrer',
-    // The page talks to itself and, by opening a link, to plex.tv. Nothing else.
+    // The page talks to itself and, on one deliberate exception, to plex.tv —
+    // the viewer's browser mints and polls the OAuth pin directly so the
+    // popup never names this deployment's address. Everything else is same-origin.
     'content-security-policy':
       "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
-      + "font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; "
+      + "font-src 'self'; img-src 'self' data:; connect-src 'self' https://plex.tv; form-action 'self'; "
       + "base-uri 'none'; frame-ancestors 'none'",
+    // The gate opens the plex.tv popup and nothing else; no cross-window
+    // relationship is wanted, so none is permitted.
+    'cross-origin-opener-policy': 'same-origin',
     'cache-control': 'no-store',
   });
   res.end(body);
@@ -206,10 +229,15 @@ function isSecureRequest(req: IncomingMessage): boolean {
  * screen. The escaping is what matters, and it is unconditional.
  */
 const SAFE_HOST = /^[a-z0-9.-]{1,253}(:\d{1,5})?$|^\[[0-9a-f:]{2,45}\](:\d{1,5})?$/i;
-function publicOrigin(req: IncomingMessage): string {
+function publicOrigin(req: IncomingMessage, hostnameLock = ''): string {
   const raw = req.headers.host;
   const host = Array.isArray(raw) ? raw[0] : raw;
   if (!host || !SAFE_HOST.test(host)) return '';
+  // An operator who pins PUBLIC_HOSTNAME gets a card only for that name,
+  // whatever port the Host header trails. The escaping above still applies
+  // either way; this narrows which hosts are worth a card at all.
+  const bare = host.toLowerCase().replace(/:\d+$/, '');
+  if (hostnameLock && bare !== hostnameLock.toLowerCase()) return '';
   return `${isSecureRequest(req) ? 'https' : 'http'}://${host}`;
 }
 
@@ -246,6 +274,36 @@ async function readJsonBody(req: IncomingMessage, limitBytes = 64 * 1024): Promi
 }
 
 // ─── The service ─────────────────────────────────────────────────────────────
+
+/**
+ * Baseline hardening applied to EVERY response this service sends — its own
+ * pages, JSON, proxied store documents and proxied Plex bodies alike.
+ *
+ * `html()` and `json()` refine some of these with their own writeHead values;
+ * setting them here first means the handlers can never forget one on a new
+ * route, which is the failure mode that matters: an endpoint added next month
+ * inherits the floor automatically.
+ *
+ * HSTS only over TLS as reported by the proxy chain (see isSecureRequest) —
+ * over plain HTTP on a LAN address the header is meaningless, and a browser
+ * that saw one there anyway would lock the owner out of their own store on
+ * the port they test against.
+ */
+function applySecurityHeaders(req: IncomingMessage, res: ServerResponse): void {
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  // A CSP holding ONLY frame-ancestors: it does not constrain the page's own
+  // resources (the store's needs are vite's business), so it cannot break
+  // anything, while still refusing to let another origin frame this one.
+  res.setHeader('content-security-policy', "frame-ancestors 'self'");
+  // Nothing on this origin is meant to be embedded from anywhere else — the
+  // proxied bodies carry per-viewer tokens.
+  res.setHeader('cross-origin-resource-policy', 'same-origin');
+  if (isSecureRequest(req)) {
+    res.setHeader('strict-transport-security', 'max-age=15552000');
+  }
+}
 
 export function createFrontDoor(
   cfg: FrontDoorConfig,
@@ -302,29 +360,38 @@ export function createFrontDoor(
    * it is claimed, and a restart mid-sign-in just means signing in again.
    */
   const pendingPins = new Map<number, { createdAt: number }>();
-  const pinAttempts = new Map<string, number[]>();
 
   /**
-   * Per-caller rate limit on `/auth/pin` — the one endpoint that is both
-   * unauthenticated and reaches out to plex.tv on a stranger's say-so.
+   * Per-caller rate limits on the two unauthenticated endpoints that write
+   * shared state or reach out to plex.tv on a stranger's say-so.
    *
-   * Without it, anyone who can load the sign-in page can make this server
-   * hammer plex.tv, and can exhaust the shared pending-pin table for everybody
-   * else. A global cap alone does not help: it is a shared resource, so one
-   * caller filling it is a denial of service against real viewers.
+   * `/auth/pin` REGISTERS a pin the viewer's browser minted (it no longer
+   * creates one — that is the IP-leak fix). Without the limit, anyone who can
+   * load the gate page can fill the shared pending-pin table and crowd out
+   * real viewers. `/auth/claim` costs one plex.tv round trip per call, so it
+   * is limited too — tighter than the pin window, because a legitimate
+   * sign-in claims once.
+   *
+   * Keying is `callerKey`, whose trust posture is documented above: behind
+   * cloudflared with TRUST_PROXY_HEADERS unset, every caller shares one
+   * bucket — global rather than per-IP, and honest about it.
    */
-  function rateLimited(req: IncomingMessage, at: number): boolean {
-    const key = callerKey(req);
-    const hits = (pinAttempts.get(key) || []).filter((t) => at - t < PIN_RATE_WINDOW_MS);
-    hits.push(at);
-    pinAttempts.set(key, hits);
-    // Keep the map bounded on a long-lived process.
-    if (pinAttempts.size > 5000) {
-      for (const [k, v] of pinAttempts) {
-        if (!v.some((t) => at - t < PIN_RATE_WINDOW_MS)) pinAttempts.delete(k);
-      }
+  const pinLimiter = new RateLimiter(PIN_RATE_WINDOW_MS, PIN_RATE_MAX);
+  const claimLimiter = new RateLimiter(CLAIM_RATE_WINDOW_MS, CLAIM_RATE_MAX);
+  /**
+   * First run only, and the most sensitive unauthenticated surface there is:
+   * `/setup/claim` is the door to owning the whole store, and `/setup/claim-pin`
+   * costs a plex.tv round trip. Twelve hex characters are not brute-forceable
+   * online in any practical sense, but there is no reason to let anyone try at
+   * line rate either.
+   */
+  const setupLimiter = new RateLimiter(10 * 60_000, 10);
+
+  /** Drop pins nobody will ever claim again, keeping the map bounded. */
+  function sweepPins(at: number): void {
+    for (const [id, p] of pendingPins) {
+      if (at - p.createdAt > PIN_TTL_MS) pendingPins.delete(id);
     }
-    return hits.length > PIN_RATE_MAX;
   }
 
   const identity: PlexClientIdentity = {
@@ -392,6 +459,8 @@ export function createFrontDoor(
     const url = new URL(req.url || '/', 'http://localhost');
     const path = url.pathname;
 
+    applySecurityHeaders(req, res);
+
     try {
       // ── Unauthenticated ────────────────────────────────────────────────────
 
@@ -437,10 +506,13 @@ export function createFrontDoor(
       // control of the host, which is exactly the claim being made.
       if (!isConfigured(inst)) {
         if (path === '/setup' || (path === '/' && req.method === 'GET')) {
-          return html(res, 200, setupPage());
+          return html(res, 200, setupPage(identity));
         }
 
         if (path === '/setup/claim' && req.method === 'POST') {
+          if (setupLimiter.limited(callerKey(req), now())) {
+            return json(res, 429, { error: 'too many attempts, try again shortly' });
+          }
           const body = await readJsonBody(req) as { token?: string };
           const given = String(body?.token ?? '').trim().toLowerCase();
           const expected = (inst.setupToken || '').toLowerCase();
@@ -454,6 +526,9 @@ export function createFrontDoor(
 
         if (path === '/setup/claim-pin' && req.method === 'POST') {
           if (!setupClaimed) return json(res, 403, { error: 'Enter the setup code first.' });
+          if (setupLimiter.limited(callerKey(req), now())) {
+            return json(res, 429, { error: 'too many attempts, try again shortly' });
+          }
           const body = await readJsonBody(req) as { id?: number };
           const id = Number(body?.id);
           if (!Number.isFinite(id) || !pendingPins.has(id)) {
@@ -505,25 +580,42 @@ export function createFrontDoor(
 
       // Begin sign-in. Deliberately reachable without a session — it is how you
       // get one — so it is the most exposed endpoint in the service.
+      //
+      // REGISTERS a pin; it does not create one. The viewer's browser mints
+      // the pin at plex.tv directly (see signin-page.ts for why that address
+      // attribution matters), and tells this endpoint which id to expect.
+      // This side never talks to plex.tv here at all — the point of the fix —
+      // and the claim is where the one authoritative round trip happens.
       if (path === '/auth/pin' && req.method === 'POST') {
-        // Sweep expired pins on the way in. Cheap, and it keeps an unbounded map
-        // from being an easy memory-exhaustion target.
-        for (const [id, p] of pendingPins) {
-          if (now() - p.createdAt > PIN_TTL_MS) pendingPins.delete(id);
-        }
-        if (rateLimited(req, now())) {
+        // Sweep expired registrations on the way in. Cheap, and it keeps an
+        // unbounded map from being an easy memory-exhaustion target.
+        sweepPins(now());
+        if (pinLimiter.limited(callerKey(req), now())) {
           return json(res, 429, { error: 'too many sign-in attempts, try again shortly' });
         }
         if (pendingPins.size > 100) {
           return json(res, 429, { error: 'too many sign-ins in flight, try again shortly' });
         }
-        const pin = await createPin(identity);
-        pendingPins.set(pin.id, { createdAt: now() });
-        return json(res, 200, { id: pin.id, code: pin.code, authUrl: pin.authUrl });
+        const body = await readJsonBody(req) as { id?: number };
+        const id = Number(body?.id);
+        // A pin id is a positive integer plex.tv already issued to the
+        // browser. Anything else is either a broken page or a probe, and
+        // neither gets a slot in the shared table.
+        if (!Number.isInteger(id) || id <= 0 || id > Number.MAX_SAFE_INTEGER) {
+          return json(res, 400, { error: 'This page must obtain a sign-in code from plex.tv first.' });
+        }
+        pendingPins.set(id, { createdAt: now() });
+        return json(res, 200, { ok: true });
       }
 
       // Exchange an authorised pin for a session. THIS is where the gate runs.
       if (path === '/auth/claim' && req.method === 'POST') {
+        // One plex.tv round trip per call, from an unauthenticated endpoint:
+        // rate-limited tightly, because a legitimate sign-in claims once.
+        if (claimLimiter.limited(callerKey(req), now())) {
+          return json(res, 429, { error: 'too many sign-in attempts, try again shortly' });
+        }
+        sweepPins(now());
         const body = await readJsonBody(req) as { id?: number; aspect?: string };
         const id = Number(body?.id);
         if (!Number.isFinite(id) || !pendingPins.has(id)) {
@@ -585,7 +677,7 @@ export function createFrontDoor(
         // A browser gets the gate, not a JSON error. 200 rather than 401
         // because this IS the page for this request, not a failure to render
         // one — a 401 with a body makes some clients show their own auth UI.
-        return html(res, 200, signInPage(publicOrigin(req)));
+        return html(res, 200, signInPage(publicOrigin(req, cfg.publicHostname), identity));
       }
 
       const { payload, token } = session;
@@ -639,6 +731,25 @@ export function createFrontDoor(
           db.setConfig(payload.uid, key, String(body.value), now());
         }
         return json(res, 200, { ok: true });
+      }
+
+      // The viewer's own Plex server, through the front door. Reaching this
+      // line means the request already carried a valid, re-validated session
+      // — the same gate the store sits behind, on purpose: the proxy is the
+      // ONLY route a browser has to the Plex server, so it must be no easier
+      // to pass than the store itself.
+      //
+      // The upstream address is resolved from the viewer's own token (cached
+      // per session) and never appears in the response — not in the bootstrap,
+      // not in a redirected playlist, not in an error. A browser that learned
+      // it would hold the operator's public IP, which is the leak this pipe
+      // exists to close.
+      if (plexProxyTarget(req) !== null) {
+        const conn = await connectionFor(payload.sid, token);
+        if (!conn) {
+          return json(res, 502, { error: 'Plex is not reachable right now — try again in a moment.' });
+        }
+        return proxyPlex(req, res, { upstream: conn.upstream, origins: conn.origins });
       }
 
       // Everything else is the store itself, proxied from the app process on

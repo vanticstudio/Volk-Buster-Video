@@ -22,6 +22,47 @@ small multi-user service, and making it ours.
 
 ### Security
 
+- **The operator's home IP no longer leaks to viewers.** During Plex sign-in,
+  Plex's own OAuth popup displays the IP address of the device that minted and
+  polls the PIN — and every request the front door makes to plex.tv leaves
+  through the home WAN, around the Cloudflare tunnel. A viewer signing in was
+  shown `115.70.96.154 (Melbourne, Victoria, Australia)`: the operator's own
+  public IP, printed by Plex to every person who logged in. The whole PIN dance
+  — minting, polling, building the popup URL — now lives in the viewer's
+  browser, so the popup attributes the sign-in to the viewer's own address;
+  the server's part is registration and one authoritative claim, which also
+  takes a sign-in from a plex.tv round trip every two seconds down to exactly
+  one. The public `/auth/pin` endpoint can no longer create pins at all.
+
+- **The viewer's browser is never told where the Plex server lives.** The
+  connection handed to every signed-in browser was one of Plex's advertised
+  addresses — for a remote viewer, `https://115-70-96-154.<hash>.plex.direct:
+  32400`, the operator's public IP encoded in the hostname — persisted in
+  localStorage, with all artwork, metadata and video flowing direct to the
+  home WAN around the tunnel. The store is now handed `/plex`, a path on the
+  origin it is already talking to, and the front door proxies it server-side
+  to an address resolved from the viewer's own token (LAN-first). Absolute
+  server addresses are rewritten out of proxied playlists, redirects and
+  documents, so a browser cannot learn the address from any response. A
+  side effect worth having: a stolen per-server token is now inert on its
+  own, because the only door it works through is the session-gated proxy.
+
+- **Baseline hardening on every response**, applied at the front door so a
+  new route inherits it: `X-Content-Type-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, `Cross-Origin-Resource-Policy: same-origin`, HSTS
+  when the request arrived over TLS, `frame-ancestors` against cross-origin
+  framing, and `Cross-Origin-Opener-Policy` on the front door's own pages.
+
+- **Rate limits where there were none.** `/auth/claim` (one plex.tv round
+  trip per call, unauthenticated), `/setup/claim` (the door to owning the
+  whole store during first run) and `/setup/claim-pin` are now limited per
+  caller, joining `/auth/pin`. The limiters are shared by the front door and
+  the management console.
+
+- **`PUBLIC_HOSTNAME`** (optional) pins the sign-in page's link-preview card
+  to the one host the tunnel routes, so a forged Host header cannot influence
+  even the card.
+
 - **Credentials could no longer be compiled into the shipped bundle.** Vite
   substitutes every `VITE_*` value into `dist/assets/main-*.js` at build time,
   so upstream's `VITE_JELLYFIN_PASSWORD`, `VITE_ROMM_APIKEY` and the
